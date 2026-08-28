@@ -1,0 +1,62 @@
+name: Windows OpenCode Workspace
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Optional non-interactive PowerShell command to run in the repository'
+        required: false
+        default: 'Get-ChildItem'
+        type: string
+      run_analyzer_tests:
+        description: 'Run the local analyzer tests'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  windows-workspace:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      OPENCODE_PROVIDER: ${{ secrets.OPENCODE_PROVIDER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Bootstrap OpenCode
+        shell: pwsh
+        run: .\.github\windows\bootstrap-opencode.ps1
+
+      - name: Run local analyzer tests
+        if: ${{ inputs.run_analyzer_tests }}
+        shell: pwsh
+        run: python -m unittest discover -s tests -v
+
+      - name: Run requested command
+        shell: pwsh
+        env:
+          USER_COMMAND: ${{ inputs.command }}
+        run: |
+          Write-Host "Running the requested repository command"
+          & ([scriptblock]::Create($env:USER_COMMAND))
+
+      - name: Upload workspace logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-opencode-logs-${{ github.run_id }}
+          path: |
+            ${{ github.workspace }}\*.log
+            ${{ github.workspace }}\analysis-report.json
+          if-no-files-found: ignore

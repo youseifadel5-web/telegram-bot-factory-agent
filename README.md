@@ -40,3 +40,17 @@ python -m unittest discover -s tests -v
 ```
 
 يعمل GitHub Actions على Python 3.11 و3.12، ويجري الاختبارات وفحص compilation فقط. لا يحتاج workflow إلى Secrets.
+
+## بيئة Windows وOpenCode
+
+يوجد Workflow يدوي باسم **Windows OpenCode Workspace**. من تبويب **Actions** اختر هذا الـ Workflow ثم **Run workflow**. يمكنك ترك الأمر الافتراضي لفحص الملفات، أو تمرير أمر PowerShell غير تفاعلي عبر الحقل `command`، واختيار تشغيل اختبارات المحلل.
+
+يعمل الـ Workflow على `windows-latest`، ويثبت Node.js 22 وOpenCode عبر npm أثناء الـ run فقط. لا يستخدم Docker، ولا يحتاج إلى Codespaces أو خادم دائم. إذا أضفت Secret باسم `OPENCODE_API_KEY`، يمرره Workflow كمتغير بيئة مقنّع؛ لا توجد مفاتيح افتراضية داخل المستودع.
+
+| ما هو متاح | القيد |
+|---|---|
+| Windows runner، PowerShell، Git، Python، Node.js، OpenCode، وفحص ملفات المشروع | الجهاز مؤقت وينتهي بعد انتهاء الـ Workflow |
+| تثبيت أدوات إضافية أثناء الـ run | لا توجد جلسة سطح مكتب رسومية أو Terminal دائم يمكن إبقاؤه مفتوحًا من GitHub Actions |
+| تشغيل أوامر بناء واختبار وتحليل ورفع logs كـ Artifacts | الأوامر التفاعلية التي تنتظر إدخالًا يدويًا لا تناسب GitHub Actions |
+
+لذلك فهذا الحل مناسب لتشغيل OpenCode والأوامر الآلية وتحليل ملفات المشروع. أما فتح تطبيق Android بواجهة رسومية أو التحكم المستمر في سطح مكتب Windows فيحتاج جهاز Windows فعليًا أو runner ذاتيًا يديره المستخدم، وليس GitHub-hosted runner مؤقتًا.
