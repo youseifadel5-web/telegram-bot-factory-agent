@@ -1,0 +1,6 @@
+.env
+*.session
+__pycache__/
+*.pyc
+bot_factory_data/
+artifacts/
