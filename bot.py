@@ -64,7 +64,7 @@ LINK_TTL         = int(_c("LINK_TTL", 86400))
 TMDB_API_KEY     = str(_c("TMDB_API_KEY", "")).strip()
 
 ITEMS_PER_PAGE   = int(_c("ITEMS_PER_PAGE", 10))
-CACHE_DURATION   = int(_c("CACHE_DURATION", 600))
+CACHE_DURATION   = int(_c("CACHE_DURATION", 3600))   # ساعة — ضغطات فورية
 REQUEST_TIMEOUT  = int(_c("REQUEST_TIMEOUT", 30))
 MAX_RETRIES      = int(_c("MAX_RETRIES", 3))
 BOT_NAME         = str(_c("BOT_NAME", "𝑌𝑜𝑢𝑠𝑒𝑖𝑓 𝐹𝑖𝑙𝑚𝑠 🎬"))
@@ -967,11 +967,8 @@ def item_detail_kb(uid: int, db: DB, type_: str, item: Dict, cat_id: str, page: 
         rows.append([InlineKeyboardButton("🎬 مشاهدة مباشرة",
                                           url=player_link(xt.live_url(iid), title))])
         raw_live = clean_url(xt.live_url(iid))
-        rows.append([
-            InlineKeyboardButton("▶️ VLC", url=f"vlc://{raw_live}"),
-            InlineKeyboardButton("📋 نسخ الرابط", switch_inline_query_current_chat=raw_live),
-        ])
-        rows.append([InlineKeyboardButton("📥 فتح في مشغل خارجي", url=raw_live)])
+        rows.append([InlineKeyboardButton("📥 فتح في مشغل خارجي (VLC)", url=raw_live)])
+        rows.append([InlineKeyboardButton("📋 نسخ الرابط الخام", switch_inline_query_current_chat=raw_live)])
     elif type_ == "movie":
         ext = item.get("container_extension") or "mp4"
         rows.append([InlineKeyboardButton("🎬 مشاهدة مباشرة",
@@ -979,11 +976,9 @@ def item_detail_kb(uid: int, db: DB, type_: str, item: Dict, cat_id: str, page: 
         rows.append([InlineKeyboardButton(f"📥 تحميل الفيلم ({ext})",
                                           url=player_link(xt.movie_url(iid, ext), title + " — تحميل"))])
         # 🎥 أزرار مشغلات خارجية + نسخ (روابط خام تعمل في VLC/MX)
-        raw_m3u8 = clean_url(xt.movie_m3u8(iid))
-        rows.append([
-            InlineKeyboardButton("▶️ VLC", url=f"vlc://{raw_m3u8}"),
-            InlineKeyboardButton("📋 نسخ الرابط", switch_inline_query_current_chat=raw_m3u8),
-        ])
+        raw_mp4 = clean_url(xt.movie_url(iid, ext))
+        rows.append([InlineKeyboardButton("📥 تحميل مباشر (VLC/MX)", url=raw_mp4)])
+        rows.append([InlineKeyboardButton("📋 نسخ الرابط الخام", switch_inline_query_current_chat=raw_mp4)])
     elif type_ == "series":
         rows.append([InlineKeyboardButton("📀 المواسم والحلقات", callback_data=f"s:{iid}:0")])
         rows.append([InlineKeyboardButton("⚡ مشاهدة أول حلقة", callback_data=f"w:{iid}")])
@@ -1047,11 +1042,9 @@ def episode_play_kb(ep: Dict, series_id, season: int, page: int, xt: Xtream,
     title = f"{series_title} — حلقة {num}" if series_title else f"حلقة {num}"
     rows = [[InlineKeyboardButton("▶️ مشاهدة الحلقة 🎬",
                                   url=player_link(xt.episode_m3u8(eid), title))]]
-    raw_ep = clean_url(xt.episode_m3u8(eid))
-    rows.append([
-        InlineKeyboardButton("▶️ VLC", url=f"vlc://{raw_ep}"),
-        InlineKeyboardButton("📋 نسخ الرابط", switch_inline_query_current_chat=raw_ep),
-    ])
+    raw_ep = clean_url(xt.episode_url(eid, ep.get("container_extension") or "mp4"))
+    rows.append([InlineKeyboardButton("📥 فتح في مشغل خارجي (VLC)", url=raw_ep)])
+    rows.append([InlineKeyboardButton("📋 نسخ الرابط الخام", switch_inline_query_current_chat=raw_ep)])
     rows.append([InlineKeyboardButton("🔙 الحلقات", callback_data=f"e:{series_id}:{season}:{page}")])
     rows.append(back_main_row())
     return InlineKeyboardMarkup(rows)
@@ -1180,7 +1173,7 @@ class CinemaBot:
         await self._safe_edit(q, "⏳ جاري تحميل العناصر...")
         group_label = None
         if cat_id.startswith("g") and cat_id[1:].isdigit():
-            # 🔗 فئة مدمجة: نجمع عناصر كل الأقسام الخام تحتها (مكرر يُحذف بالـ id)
+            # 🔗 فئة مدمجة: نجمع عناصر كل الأقسام الخام تحتها بالتوازي (مش واحد ورا التاني)
             idx = int(cat_id[1:])
             groups = await get_groups(self.store, type_)
             entries = list(groups.items())
@@ -1189,19 +1182,47 @@ class CinemaBot:
                 await self._show_categories(q, type_)
                 return
             group_label, gdata = entries[idx]
-            items, seen = [], set()
             id_key = "series_id" if type_ == "series" else "stream_id"
-            for raw_id in gdata["ids"]:
-                for it in await self.store.streams(type_, raw_id):
-                    iid = it.get(id_key)
-                    if iid is not None and iid not in seen:
-                        seen.add(iid)
-                        items.append(it)
+            try:
+                # ⚡ asyncio.gather: كل الأقسام بتتحمل في نفس الوقت + تايم أوت 40 ثانية
+                results = await asyncio.wait_for(asyncio.gather(
+                    *[self.store.streams(type_, rid) for rid in gdata["ids"]],
+                    return_exceptions=True), timeout=40)
+            except asyncio.TimeoutError:
+                await self._safe_edit(
+                    q,
+                    f"⏳ <b>السيرفر بطيء حالياً في «{esc(group_label)}»</b>\n"
+                    "━━━━━━━━━━━━━━━\n🔄 اضغط إعادة المحاولة:",
+                    InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔄 إعادة المحاولة", callback_data=f"g:{type_}:{idx}")],
+                        [InlineKeyboardButton(f"🔙 {TYPE_LABEL[type_]}", callback_data=f"t:{type_}")],
+                        back_main_row()]))
+                return
+            items, seen = [], set()
+            for res in results:
+                if isinstance(res, list):
+                    for it in res:
+                        iid = it.get(id_key)
+                        if iid is not None and iid not in seen:
+                            seen.add(iid)
+                            items.append(it)
         else:
-            items = await self.store.streams(type_, cat_id)
+            try:
+                items = await asyncio.wait_for(self.store.streams(type_, cat_id), timeout=40)
+            except asyncio.TimeoutError:
+                items = []
         if not items:
-            await self._safe_edit(q, "❌ لا توجد عناصر في هذا القسم.",
-                                  InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"t:{type_}")], back_main_row()]))
+            # ⚠️ بدل التعليق: رسالة واضحة + إعادة محاولة (الكاش يُملأ من أول محاولة ناجحة)
+            retry_cb = f"g:{type_}:{cat_id[1:]}" if cat_id.startswith("g") else f"c:{type_}:{cat_id}:{page}"
+            await self._safe_edit(
+                q,
+                f"⚠️ <b>تعذر تحميل «{esc(group_label or 'هذا القسم')}» الآن</b>\n"
+                "━━━━━━━━━━━━━━━\n"
+                "🌐 السيرفر مش بيرد أو بطيء — غالباً محاولة تانية تكفي.",
+                InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 إعادة المحاولة", callback_data=retry_cb)],
+                    [InlineKeyboardButton(f"🔙 {TYPE_LABEL[type_]}", callback_data=f"t:{type_}")],
+                    back_main_row()]))
             return
         _, page, pages = _page_slice(items, page)
         header = group_label or TYPE_LABEL[type_]
@@ -1666,7 +1687,7 @@ class CinemaBot:
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("🎬 مشاهدة في المشغل", url=link)],
-                        [InlineKeyboardButton("▶️ VLC", url=f"vlc://{clean_raw}"),
+                        [InlineKeyboardButton("▶️ مشغل خارجي (VLC/MX)", url=clean_raw),
                          InlineKeyboardButton("🌐 المتصفح", url=clean_raw)],
                         [InlineKeyboardButton("📋 نسخ الرابط الخام", switch_inline_query_current_chat=clean_raw)],
                         back_main_row(),
