@@ -25,10 +25,9 @@ LINK_SECRET = "youseif-films-secret-2026"
 # مدة صلاحية الرابط بالثواني: 86400 = 24 ساعة
 LINK_TTL = 86400
 
-# ── 🎞️ TMDB (اختياري): بوسترات + قصة بالعربية + تقييم ──
-# سجّل مجاناً على themoviedb.org → Settings → API → انسخ المفتاح هنا
-# لو فاضي: البوت يشتغل عادي ويستخدم بوسترات السيرفر
-TMDB_API_KEY = ""
+# ── 🎞️ TMDB ──
+# ضع المفتاح في GitHub Secrets باسم TMDB_API_KEY فقط (لا تضعه هنا)
+# TMDB_API_KEY يُقرأ من البيئة / Secrets تلقائياً
 
 # ── عرض وأداء ──
 ITEMS_PER_PAGE = 10        # عناصر كل صفحة (5–15)

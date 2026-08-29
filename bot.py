@@ -3,14 +3,15 @@
 🎬 𝑌𝑜𝑢𝑠𝑒𝑖𝑓 𝐹𝑖𝑙𝑚𝑠 — بوت تيليجرام سينمائي احترافي
 ═══════════════════════════════════════════════════════════
 • Xtream Codes API: قنوات مباشرة + أفلام + مسلسلات (مواسم/حلقات)
-• مشغل ويب مشفر: youseifstream.youseif.workers.dev (روابط quote-encoded)
-• TMDB: بوسترات + قصة بالعربية + تقييم
-• توكن مؤقت HMAC لروابط المشاهدة (صلاحية قابلة للضبط)
-• مفضلة SQLite لكل مستخدم + بحث ذكي عربي/إنجليزي
-• لوحة أدمن: إحصائيات + بث جماعي
+• مشغل ويب مشفر (بدون مشغل خارجي) — أزرار مشاهدة + بث
+• TMDB محسّن: بوسترات + قصة عربية للمسلسلات والكرتون والأفلام
+• توكن مؤقت HMAC لروابط المشاهدة
+• بحث ذكي أقوى (كلمات متعددة + ترتيب حسب المطابقة)
+• حماية محتوى الكبار بباسورد يُولَّد تلقائياً (للأدمن فقط)
+• أزرار مرتبة ومتناسقة + لوحة أدمن (باسورد/إحصائيات/بث)
 ═══════════════════════════════════════════════════════════
 الأسرار (3 فقط) من البيئة / GitHub Secrets: BOT_TOKEN, API_ID, API_HASH
-باقي الإعدادات من config.py
+باقي الإعدادات من config.py — TMDB_API_KEY من GitHub Secrets فقط
 """
 import os
 import re
@@ -27,10 +28,13 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
-# ══════════════ أسرار التليجرام (GitHub Secrets فقط) ══════════════
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-API_ID    = os.getenv("API_ID", "").strip()
-API_HASH  = os.getenv("API_HASH", "").strip()
+# ══════════════ أسرار من GitHub Secrets فقط ══════════════
+# BOT_TOKEN / API_ID / API_HASH / TMDB_API_KEY
+BOT_TOKEN     = os.getenv("BOT_TOKEN", "").strip()
+API_ID        = os.getenv("API_ID", "").strip()
+API_HASH      = os.getenv("API_HASH", "").strip()
+# TMDB من البيئة أولاً (GitHub Secret) — لا تحتاج تضعه في config.py
+TMDB_API_KEY  = os.getenv("TMDB_API_KEY", "").strip()
 
 if not BOT_TOKEN:
     print("❌ BOT_TOKEN مفقود! ضعه في GitHub Secrets أو متغيرات البيئة.")
@@ -60,8 +64,9 @@ PLAYER_URL       = str(_c("PLAYER_URL", "https://youseifstream.youseif.workers.d
 LINK_SECRET      = str(_c("LINK_SECRET", "youseif-films-secret-2026")).strip()
 # ⏳ مدة صلاحية رابط المشاهدة بالثواني (86400 = 24 ساعة)
 LINK_TTL         = int(_c("LINK_TTL", 86400))
-# 🎞️ مفتاح TMDB (اختياري — بدونه تُستخدم بوسترات السيرفر)
-TMDB_API_KEY     = str(_c("TMDB_API_KEY", "")).strip()
+# احتياطي: لو TMDB مش في Secrets يقرأ من config (اختياري)
+if not TMDB_API_KEY:
+    TMDB_API_KEY = str(_c("TMDB_API_KEY", "")).strip()
 
 ITEMS_PER_PAGE   = int(_c("ITEMS_PER_PAGE", 10))
 CACHE_DURATION   = int(_c("CACHE_DURATION", 600))
@@ -101,13 +106,25 @@ def is_admin(user_id: int) -> bool:
     return (not ADMIN_IDS) or (user_id in ADMIN_IDS)
 
 
+# ── حماية محتوى الكبار: كلمات مفتاحية ──
+ADULT_KEYWORDS = re.compile(
+    r"(?i)\b(ADULTE?|ADULT|XXX|PORN|SEX|18\+|للكبار|كبار فقط|للبالغين)\b"
+)
+
+
+def is_adult_name(name: str) -> bool:
+    """يتحقق هل الاسم/القسم ينتمي لمحتوى كبار."""
+    return bool(ADULT_KEYWORDS.search(str(name or "")))
+
+
 # كلمات تقنية تُحذف من الأسماء (جودة، سنوات، أكواد)
 _NOISE_WORDS = re.compile(
     r"(?i)\b(VOD|SERIE|S[ÉE]RIE|4K|8K|FHD|UHD|H265|HEVC|HD|SD|HQ|MULTI|TRUEFRENCH|"
     r"RAMADAN\s*\d{4}|RAMADAN|X264|X265|WEB[- ]?DL|WEBRIP|BLURAY|BDRIP|HDRIP|DVDRIP|"
-    r"CAM|TS|HDCAM|SUBFRENCH|VOSTFR|FRENCH|EXTENDED|UNRATED|REMUX|PROPER|REPACK)\b"
+    r"CAM|TS|HDCAM|SUBFRENCH|VOSTFR|FRENCH|EXTENDED|UNRATED|REMUX|PROPER|REPACK|"
+    r"AAC|AC3|DTS|NF|AMZN|DSNP|HMAX|PCOK|ATVP|iT|WEB)\b"
 )
-_NOISE_BRACKETS = re.compile(r"\[[A-Za-z]{1,4}\]")
+_NOISE_BRACKETS = re.compile(r"\[[A-Za-z0-9]{1,6}\]")
 
 
 def clean_name(raw) -> str:
@@ -508,7 +525,9 @@ class Xtream:
 
 # ══════════════ 🎞️ TMDB API (بوسترات + قصة بالعربية) ══════════════
 class TMDB:
-    """يجلب بوستر وقصة وتقييم من TMDB. بدون مفتاح → يرجع بيانات السيرفر."""
+    """يجلب بوستر وقصة وتقييم من TMDB. بدون مفتاح → يرجع بيانات السيرفر.
+    محسّن: تنظيف أقوى + بحث ثنائي اللغة (ar ثم en) + fallback بدون سنة.
+    """
 
     BASE = "https://api.themoviedb.org/3"
     IMG = "https://image.tmdb.org/t/p/w500"
@@ -524,56 +543,113 @@ class TMDB:
 
     async def client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(12))
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(15))
         return self._client
 
     def _clean_title(self, raw: str) -> Tuple[str, Optional[int]]:
-        """ينظف اسم العمل ويستخرج السنة لو موجودة."""
+        """ينظف اسم العمل ويستخرج السنة لو موجودة — أقوى تنظيف للكرتون والمسلسلات."""
         s = clean_name(raw)
         year = None
         m = re.search(r"\((\d{4})\)", s)
         if m:
             year = int(m.group(1))
             s = re.sub(r"\(\d{4}\)", "", s).strip()
-        s = re.sub(r"\b(19|20)\d{2}\b", "", s).strip() if not year else s
+        # إزالة سنوات حرة وأرقام الحلقات/المواسم
+        if not year:
+            m2 = re.search(r"\b((19|20)\d{2})\b", s)
+            if m2:
+                year = int(m2.group(1))
+                s = re.sub(r"\b(19|20)\d{2}\b", "", s).strip()
+        s = re.sub(r"(?i)\b(S\d{1,2}|E\d{1,3}|SEASON\s*\d+|EPISODE\s*\d+|موسم\s*\d+|حلقة\s*\d+)\b", "", s)
+        s = re.sub(r"\s{2,}", " ", s).strip(" -_.")
         return s, year
+
+    async def _search_once(self, c, endpoint: str, title: str, year: Optional[int],
+                           lang: str, adult: bool = False) -> Dict:
+        params = {
+            "api_key": self.key,
+            "query": title,
+            "language": lang,
+            "include_adult": "true" if adult else "false",
+        }
+        if year:
+            params["year" if endpoint == "movie" else "first_air_date_year"] = year
+        try:
+            r = await c.get(f"{self.BASE}/search/{endpoint}", params=params)
+            if r.status_code != 200:
+                return {}
+            results = (r.json() or {}).get("results") or []
+            if not results:
+                return {}
+            # اختيار أفضل نتيجة: تطابق أقرب للاسم
+            title_n = normalize_ar(title)
+            best = results[0]
+            best_score = 0
+            for res in results[:8]:
+                rname = normalize_ar(res.get("title") or res.get("name") or "")
+                score = 0
+                if rname == title_n:
+                    score = 100
+                elif title_n in rname or rname in title_n:
+                    score = 70
+                else:
+                    # عدد الكلمات المشتركة
+                    tw = set(title_n.split())
+                    rw = set(rname.split())
+                    if tw and rw:
+                        score = int(40 * len(tw & rw) / max(len(tw), 1))
+                if score > best_score:
+                    best_score = score
+                    best = res
+            poster = best.get("poster_path")
+            overview = (best.get("overview") or "").strip()
+            return {
+                "poster": f"{self.IMG}{poster}" if poster else "",
+                "overview": overview[:450] if overview else "",
+                "year": (best.get("release_date") or best.get("first_air_date") or "")[:4],
+                "rating": round(float(best.get("vote_average") or 0), 1),
+                "title": best.get("title") or best.get("name") or title,
+            }
+        except Exception as e:
+            log.warning("TMDB search_once failed (%s/%s): %s", endpoint, lang, e)
+            return {}
 
     async def lookup(self, raw_title: str, kind: str) -> Dict:
         """
         kind: 'movie' أو 'series'
         يرجع: {poster, overview, year, rating, title} — قد تكون فارغة عند الفشل.
+        يجرّب: عربي + سنة → إنجليزي + سنة → عربي بدون سنة → إنجليزي بدون سنة.
         """
         if not self.enabled:
             return {}
         title, year = self._clean_title(raw_title)
-        cache_key = f"{kind}:{normalize_ar(title)}"
+        if not title or len(title) < 2:
+            return {}
+        cache_key = f"{kind}:{normalize_ar(title)}:{year or ''}"
         if cache_key in self._cache:
             return self._cache[cache_key]
         out: Dict = {}
+        endpoint = "movie" if kind == "movie" else "tv"
+        adult = is_adult_name(raw_title)
         try:
             c = await self.client()
-            endpoint = "movie" if kind == "movie" else "tv"
-            params = {
-                "api_key": self.key,
-                "query": title,
-                "language": "ar",
-                "include_adult": "false",
-            }
+            # سلسلة محاولات مرتبة حسب الأولوية
+            attempts = [
+                (title, year, "ar"),
+                (title, year, "en"),
+            ]
             if year:
-                params["year" if kind == "movie" else "first_air_date_year"] = year
-            r = await c.get(f"{self.BASE}/search/{endpoint}", params=params)
-            if r.status_code == 200:
-                results = (r.json() or {}).get("results") or []
-                if results:
-                    top = results[0]
-                    poster = top.get("poster_path")
-                    out = {
-                        "poster": f"{self.IMG}{poster}" if poster else "",
-                        "overview": (top.get("overview") or "")[:400],
-                        "year": (top.get("release_date") or top.get("first_air_date") or "")[:4],
-                        "rating": round(float(top.get("vote_average") or 0), 1),
-                        "title": top.get("title") or top.get("name") or title,
-                    }
+                attempts += [(title, None, "ar"), (title, None, "en")]
+            # لو العنوان قصير جداً أو فشل، جرّب بدون كلمات شائعة
+            short = re.sub(r"(?i)\b(the|a|an|le|la|les|el|al)\b", "", title).strip()
+            if short and short != title:
+                attempts.append((short, year, "en"))
+            for q, y, lang in attempts:
+                if not q:
+                    continue
+                out = await self._search_once(c, endpoint, q, y, lang, adult)
+                if out.get("poster") or out.get("overview"):
+                    break
         except Exception as e:
             log.warning("TMDB lookup failed: %s", e)
         self._cache[cache_key] = out
@@ -630,6 +706,14 @@ class DB:
                     item_type TEXT,
                     item_id TEXT,
                     day TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS adult_unlock (
+                    user_id INTEGER PRIMARY KEY,
+                    unlocked_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
             """)
 
@@ -728,8 +812,46 @@ class DB:
             return []
         with self._con() as c:
             return [(r["item_type"], r["item_id"]) for r in c.execute(
-                "SELECT item_type, item_id FROM aliases WHERE alias LIKE ? LIMIT 30",
+                "SELECT item_type, item_id FROM aliases WHERE alias LIKE ? LIMIT 40",
                 (f"%{q}%",)).fetchall()]
+
+    # ── إعدادات عامة (باسورد الكبار وغيرها) ──
+    def get_setting(self, key: str, default: str = "") -> str:
+        with self._con() as c:
+            row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str):
+        with self._con() as c:
+            c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (key, value))
+
+    def get_or_create_adult_password(self) -> str:
+        """يُنشئ باسورد عشوائي للكبار تلقائياً إن لم يكن موجوداً — للأدمن فقط."""
+        pw = self.get_setting("adult_password")
+        if pw:
+            return pw
+        # توليد تلقائي: 6 أرقام
+        pw = f"{random.randint(100000, 999999)}"
+        self.set_setting("adult_password", pw)
+        log.info("🔐 تم توليد باسورد محتوى الكبار تلقائياً")
+        return pw
+
+    def regenerate_adult_password(self) -> str:
+        pw = f"{random.randint(100000, 999999)}"
+        self.set_setting("adult_password", pw)
+        # إلغاء فتح الجميع عند التجديد
+        with self._con() as c:
+            c.execute("DELETE FROM adult_unlock")
+        return pw
+
+    def is_adult_unlocked(self, uid: int) -> bool:
+        with self._con() as c:
+            return bool(c.execute("SELECT 1 FROM adult_unlock WHERE user_id=?", (uid,)).fetchone())
+
+    def unlock_adult(self, uid: int):
+        with self._con() as c:
+            c.execute("INSERT OR REPLACE INTO adult_unlock (user_id, unlocked_at) VALUES (?, datetime('now'))",
+                      (uid,))
 
 
 # ══════════════ طبقة البيانات (API + كاش) ══════════════
@@ -770,14 +892,25 @@ class Store:
         return await self.streams(type_, None)
 
     async def search(self, query: str) -> List[Tuple[str, Dict]]:
-        """بحث ذكي عربي/إنجليزي — توحيد الحروف + الأسماء البديلة (ترولز ↔ Trolls)."""
-        q = normalize_ar(query)
-        if not q:
+        """بحث ذكي محسّن: توحيد عربي + كلمات منفصلة + ترتيب حسب قوة المطابقة + aliases.
+        يجلب نتائج أكثر (حتى 150) ويفهم الاستعلامات الجزئية والمتعددة الكلمات.
+        """
+        raw_q = str(query or "").strip()
+        q = normalize_ar(raw_q)
+        if not q or len(q) < 1:
             return []
-        results: List[Tuple[str, Dict]] = []
-        # أولاً: مطابقة بالاسم البديل (مثلاً "ترولز" تجد "Trolls")
-        alias_hits = self.db.find_by_alias(query)
+        # كلمات البحث (تجاهل كلمات قصيرة جداً إلا لو الاستعلام كله قصير)
+        tokens = [t for t in q.split() if len(t) >= 2] or ([q] if q else [])
+        if not tokens:
+            return []
+
+        # أولاً: مطابقة بالاسم البديل
+        alias_hits = self.db.find_by_alias(raw_q)
         alias_ids = {(t, str(i)) for t, i in alias_hits}
+
+        scored: List[Tuple[int, str, Dict]] = []  # (score, type, item)
+        seen: set = set()
+
         for type_ in ("movie", "series", "live"):
             try:
                 items = await self.all_items(type_)
@@ -788,13 +921,42 @@ class Store:
                 iid = it.get(id_key)
                 if iid is None:
                     continue
-                name = normalize_ar(it.get("name") or it.get("title") or "")
-                # مطابقة بالاسم الأصلي أو بالاسم البديل المحفوظ
-                if q in name or (type_, str(iid)) in alias_ids:
-                    results.append((type_, it))
-                if len(results) >= 80:
-                    return results
-        return results
+                key = (type_, str(iid))
+                if key in seen:
+                    continue
+                name_raw = it.get("name") or it.get("title") or ""
+                name = normalize_ar(name_raw)
+                name_clean = normalize_ar(clean_name(name_raw))
+
+                score = 0
+                # مطابقة alias محفوظ
+                if key in alias_ids:
+                    score = max(score, 90)
+                # تطابق كامل
+                if q == name or q == name_clean:
+                    score = max(score, 100)
+                elif name.startswith(q) or name_clean.startswith(q):
+                    score = max(score, 85)
+                elif q in name or q in name_clean:
+                    score = max(score, 70)
+                else:
+                    # مطابقة كل الكلمات (AND) أو معظمها
+                    matched = sum(1 for t in tokens if t in name or t in name_clean)
+                    if matched == len(tokens) and tokens:
+                        score = max(score, 60 + min(20, matched * 5))
+                    elif matched >= max(1, len(tokens) - 1) and matched > 0:
+                        score = max(score, 40 + matched * 8)
+                    elif matched > 0:
+                        score = max(score, 25 + matched * 5)
+
+                if score > 0:
+                    seen.add(key)
+                    scored.append((score, type_, it))
+
+        # ترتيب تنازلي حسب القوة ثم الاسم
+        scored.sort(key=lambda x: (-x[0], normalize_ar(x[2].get("name") or "")))
+        # حد أعلى 150 نتيجة ليعطي نتائج أكثر
+        return [(t, it) for _, t, it in scored[:150]]
 
 
 # ══════════════ 🎛️ لوحات المفاتيح (شبكة 2 و3 أعمدة) ══════════════
@@ -813,22 +975,28 @@ QUICK_BUTTONS = [
 ]
 
 
-def main_menu_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+def main_menu_kb(uid: int = 0) -> InlineKeyboardMarkup:
+    """قائمة رئيسية مرتبة باحترافية — أعمدة متناسقة + إخفاء الأدمن لغير المصرح."""
+    rows = [
+        # صف 1: المحتوى الرئيسي
         [InlineKeyboardButton("🎬 الأفلام", callback_data="t:movie"),
          InlineKeyboardButton("📺 المسلسلات", callback_data="t:series")],
+        # صف 2: البث
         [InlineKeyboardButton("📡 القنوات المباشرة", callback_data="t:live")],
-        # ⚡ أزرار محتوى سريعة (تفتح الفئة مباشرة)
+        # صف 3: اختصارات محتوى
         [InlineKeyboardButton("💪 مصارعة", callback_data="qk:رياضة ومصارعة"),
          InlineKeyboardButton("🧸 كرتون", callback_data="qk:أنيميشن")],
         [InlineKeyboardButton("🌙 رمضانيات", callback_data="qk:رمضانيات"),
          InlineKeyboardButton("👻 رعب", callback_data="qk:رعب")],
-        [InlineKeyboardButton("❤️ المفضلة", callback_data="act:fav"),
-         InlineKeyboardButton("🔍 بحث", callback_data="act:search")],
+        # صف 4: أدوات المستخدم
+        [InlineKeyboardButton("🔍 بحث", callback_data="act:search"),
+         InlineKeyboardButton("❤️ المفضلة", callback_data="act:fav")],
         [InlineKeyboardButton("🎲 عشوائي", callback_data="act:random"),
-         InlineKeyboardButton("❓ المساعدة", callback_data="act:help")],
-        [InlineKeyboardButton("👑 لوحة الأدمن", callback_data="act:admin")],
-    ])
+         InlineKeyboardButton("❓ مساعدة", callback_data="act:help")],
+    ]
+    if is_admin(uid):
+        rows.append([InlineKeyboardButton("👑 لوحة الأدمن", callback_data="act:admin")])
+    return InlineKeyboardMarkup(rows)
 
 
 def back_main_row() -> List[InlineKeyboardButton]:
@@ -928,21 +1096,22 @@ def items_kb(items: List[Dict], type_: str, cat_id: str, page: int) -> InlineKey
 
 def item_detail_kb(uid: int, db: DB, type_: str, item: Dict, cat_id: str, page: int, xt: Xtream,
                    title: str = "", poster: str = "") -> InlineKeyboardMarkup:
-    """أزرار كارت العمل: مشاهدة مشفرة + مفضلة + رجوع."""
+    """أزرار كارت العمل: مشاهدة + بث (بدون مشغل خارجي) + مفضلة + رجوع — متناسقة."""
     rows = []
     id_key = "series_id" if type_ == "series" else "stream_id"
     iid = item.get(id_key)
     if type_ == "live":
-        rows.append([InlineKeyboardButton("🎬 مشاهدة مباشرة",
-                                          url=player_link(xt.live_url(iid), title))])
-        rows.append([InlineKeyboardButton("📥 فتح في مشغل خارجي",
-                                          url=xt.live_url(iid))])
+        # زر مشاهدة (عبر المشغل المشفّر) + زر بث (رابط m3u8 مباشر داخل المشغل أيضاً)
+        rows.append([
+            InlineKeyboardButton("▶️ مشاهدة", url=player_link(xt.live_url(iid), title)),
+            InlineKeyboardButton("📡 بث مباشر", url=player_link(xt.live_url(iid), title + " — بث")),
+        ])
     elif type_ == "movie":
         ext = item.get("container_extension") or "mp4"
-        rows.append([InlineKeyboardButton("🎬 مشاهدة مباشرة",
-                                          url=player_link(xt.movie_m3u8(iid), title))])
-        rows.append([InlineKeyboardButton(f"📥 تحميل الفيلم ({ext})",
-                                          url=player_link(xt.movie_url(iid, ext), title + " — تحميل"))])
+        rows.append([
+            InlineKeyboardButton("▶️ مشاهدة", url=player_link(xt.movie_m3u8(iid), title)),
+            InlineKeyboardButton(f"⬇️ تحميل ({ext})", url=player_link(xt.movie_url(iid, ext), title + " — تحميل")),
+        ])
     elif type_ == "series":
         rows.append([InlineKeyboardButton("📀 المواسم والحلقات", callback_data=f"s:{iid}:0")])
         rows.append([InlineKeyboardButton("⚡ مشاهدة أول حلقة", callback_data=f"w:{iid}")])
@@ -953,7 +1122,7 @@ def item_detail_kb(uid: int, db: DB, type_: str, item: Dict, cat_id: str, page: 
     )])
     if cat_id == "fav":
         rows.append([InlineKeyboardButton("🔙 رجوع للمفضلة", callback_data="act:fav")])
-    elif cat_id != "all":
+    elif cat_id not in ("all", ""):
         rows.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data=f"c:{type_}:{cat_id}:{page}")])
     rows.append(back_main_row())
     return InlineKeyboardMarkup(rows)
@@ -1015,6 +1184,8 @@ def admin_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 الإحصائيات", callback_data="adm:stats"),
          InlineKeyboardButton("🔄 تحديث الكاش", callback_data="adm:flush")],
+        [InlineKeyboardButton("🔐 باسورد الكبار", callback_data="adm:adultpass"),
+         InlineKeyboardButton("🔄 تجديد الباسورد", callback_data="adm:regenpass")],
         [InlineKeyboardButton("📢 رسالة جماعية", callback_data="adm:cast")],
         back_main_row(),
     ])
@@ -1045,6 +1216,9 @@ class CinemaBot:
     async def cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         u = update.effective_user
         self.db.add_user(u.id, u.username, u.first_name)
+        # توليد باسورد الكبار تلقائياً عند أول تشغيل (يظهر للأدمن فقط)
+        if is_admin(u.id):
+            self.db.get_or_create_adult_password()
         await update.message.reply_text(
             "✨🎬 <b>𝑌𝑜𝑢𝑠𝑒𝑖𝑓 𝐹𝑖𝑙𝑚𝑠</b> 🎬✨\n"
             "━━━━━━━━━━━━━━━\n"
@@ -1053,7 +1227,7 @@ class CinemaBot:
             "━━━━━━━━━━━━━━━\n"
             "👇 <b>اختر من القائمة:</b>",
             parse_mode=ParseMode.HTML,
-            reply_markup=main_menu_kb(),
+            reply_markup=main_menu_kb(u.id),
         )
 
     async def cmd_help(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1130,6 +1304,19 @@ class CinemaBot:
                 f"📂 <b>{len(cats)} قسم</b> — اختر اللي يعجبك:",
                 categories_kb(cats, type_))
 
+    async def _require_adult(self, q, uid: int) -> bool:
+        """يرجع True لو مسموح، False لو طُلب الباسورد."""
+        if is_admin(uid) or self.db.is_adult_unlocked(uid):
+            return True
+        await self._safe_edit(
+            q,
+            "🔞✨ <b>محتوى للكبار فقط</b> ✨\n━━━━━━━━━━━━━━━\n"
+            "🔒 هذا القسم محمي بباسورد.\n"
+            "أرسل الباسورد الآن في رسالة نصية لفتحه.\n\n"
+            "💡 <i>الباسورد يعرفه الأدمن فقط.</i>",
+            InlineKeyboardMarkup([back_main_row()]))
+        return False
+
     async def _show_items(self, q, type_: str, cat_id: str, page: int):
         await self._safe_edit(q, "⏳ جاري تحميل العناصر...")
         group_label = None
@@ -1143,6 +1330,13 @@ class CinemaBot:
                 await self._show_categories(q, type_)
                 return
             group_label, gdata = entries[idx]
+            # حماية محتوى الكبار
+            if group_label and is_adult_name(group_label):
+                if not await self._require_adult(q, q.from_user.id):
+                    ADULT_PENDING[q.from_user.id] = {
+                        "type": type_, "cat_id": cat_id, "page": page, "kind": "items",
+                    }
+                    return
             items, seen = [], set()
             id_key = "series_id" if type_ == "series" else "stream_id"
             for raw_id in gdata["ids"]:
@@ -1157,8 +1351,15 @@ class CinemaBot:
             await self._safe_edit(q, "❌ لا توجد عناصر في هذا القسم.",
                                   InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"t:{type_}")], back_main_row()]))
             return
-        _, page, pages = _page_slice(items, page)
+        # فحص أسماء العناصر إن كان القسم للكبار
         header = group_label or TYPE_LABEL[type_]
+        if is_adult_name(header) or any(is_adult_name(it.get("name") or "") for it in items[:5]):
+            if not await self._require_adult(q, q.from_user.id):
+                ADULT_PENDING[q.from_user.id] = {
+                    "type": type_, "cat_id": cat_id, "page": page, "kind": "items",
+                }
+                return
+        _, page, pages = _page_slice(items, page)
         await self._safe_edit(
             q,
             f"✨ <b>{esc(header)}</b> ✨\n━━━━━━━━━━━━━━━\n"
@@ -1181,6 +1382,14 @@ class CinemaBot:
             return
 
         name = clean_name(item.get("name") or item.get("title"))
+        # حماية عنصر كبار
+        if is_adult_name(name) or is_adult_name(item.get("name") or ""):
+            if not await self._require_adult(q, uid):
+                ADULT_PENDING[uid] = {
+                    "type": type_, "cat_id": cat_id, "page": page, "kind": "item",
+                    "iid": iid,
+                }
+                return
         self.db.log_view(uid, type_, str(iid))
 
         # جلب بيانات TMDB (بوستر رسمي + قصة عربية + تقييم)
@@ -1356,7 +1565,7 @@ class CinemaBot:
                     q,
                     "✨🎬 <b>𝑌𝑜𝑢𝑠𝑒𝑖𝑓 𝐹𝑖𝑙𝑚𝑠</b> 🎬✨\n━━━━━━━━━━━━━━━\n"
                     "🏠 <b>القائمة الرئيسية</b>\n👇 <i>اختر اللي نفسك فيه:</i>",
-                    main_menu_kb())
+                    main_menu_kb(uid))
             elif data.startswith("t:"):
                 await self._show_categories(q, data.split(":", 1)[1])
             elif data.startswith("qk:"):
@@ -1375,7 +1584,7 @@ class CinemaBot:
                     if found:
                         break
                 if not found:
-                    await self._safe_edit(q, f"❌ لا توجد فئة «{esc(key)}» حالياً.", main_menu_kb())
+                    await self._safe_edit(q, f"❌ لا توجد فئة «{esc(key)}» حالياً.", main_menu_kb(uid))
             elif data.startswith("g:"):
                 # 🌳 فئة مدمجة — نبنيها من كاش SQLite الدائم (تشتغل حتى بعد إعادة التشغيل)
                 _, t, idx = data.split(":", 2)
@@ -1450,7 +1659,7 @@ class CinemaBot:
                         await self._safe_edit(q, self._search_summary_text(d["q"], grouped),
                                               self._search_summary_kb(grouped))
                     else:
-                        await self._safe_edit(q, "⌛ ابعت كلمة البحث من جديد.", main_menu_kb())
+                        await self._safe_edit(q, "⌛ ابعت كلمة البحث من جديد.", main_menu_kb(uid))
                 else:
                     await self._show_search_results(q, t, int(page))
             elif data == "act:search":
@@ -1498,8 +1707,27 @@ class CinemaBot:
             elif data == "adm:cast":
                 if is_admin(uid):
                     await self._safe_edit(q, "📢 أرسل الرسالة بالأمر:\n/broadcast نص الرسالة", admin_kb())
+            elif data == "adm:adultpass":
+                if is_admin(uid):
+                    pw = self.db.get_or_create_adult_password()
+                    await self._safe_edit(
+                        q,
+                        "🔐✨ <b>باسورد محتوى الكبار</b> ✨\n━━━━━━━━━━━━━━━\n"
+                        f"🔑 الباسورد الحالي:\n<code>{esc(pw)}</code>\n\n"
+                        "⚠️ <i>هذا الباسورد يظهر لك فقط (الأدمن).\n"
+                        "المستخدمون يدخلونه مرة واحدة لفتح قسم «للكبار فقط».</i>",
+                        admin_kb())
+            elif data == "adm:regenpass":
+                if is_admin(uid):
+                    pw = self.db.regenerate_adult_password()
+                    await self._safe_edit(
+                        q,
+                        "🔄✨ <b>تم تجديد الباسورد</b> ✨\n━━━━━━━━━━━━━━━\n"
+                        f"🔑 الباسورد الجديد:\n<code>{esc(pw)}</code>\n\n"
+                        "✅ تم إلغاء فتح جميع المستخدمين السابقين.",
+                        admin_kb())
             else:
-                await self._safe_edit(q, "❓ أمر غير معروف.", main_menu_kb())
+                await self._safe_edit(q, "❓ أمر غير معروف.", main_menu_kb(uid))
         except RetryAfter as e:
             await asyncio.sleep(e.retry_after + 1)
         except (TimedOut, NetworkError) as e:
@@ -1507,7 +1735,7 @@ class CinemaBot:
         except Exception as e:
             log.exception("خطأ في معالجة الزر %s: %s", data, e)
             try:
-                await self._safe_edit(q, "❌ حدث خطأ مؤقت — حاول مرة أخرى.", main_menu_kb())
+                await self._safe_edit(q, "❌ حدث خطأ مؤقت — حاول مرة أخرى.", main_menu_kb(uid))
             except Exception:
                 pass
 
@@ -1577,7 +1805,32 @@ class CinemaBot:
         text = update.message.text.strip()
         if text.startswith("/"):
             return
+        uid = update.effective_user.id
         ctx.user_data["awaiting_search"] = False
+
+        # 🔐 التحقق من باسورد محتوى الكبار
+        if uid in ADULT_PENDING:
+            correct = self.db.get_or_create_adult_password()
+            if text.strip() == correct:
+                self.db.unlock_adult(uid)
+                pending = ADULT_PENDING.pop(uid, {})
+                await update.message.reply_text(
+                    "✅ <b>تم فتح محتوى الكبار</b>\n"
+                    "يمكنك الآن تصفح القسم بحرية.",
+                    parse_mode=ParseMode.HTML)
+                # إعادة فتح القسم المطلوب إن أمكن
+                kind = pending.get("kind")
+                if kind == "items":
+                    # نعيد عبر رسالة جديدة لأننا لا نملك callback query هنا
+                    await update.message.reply_text(
+                        "🔄 اضغط مرة أخرى على القسم لفتحه.",
+                        reply_markup=main_menu_kb(uid))
+                return
+            else:
+                await update.message.reply_text(
+                    "❌ باسورد خاطئ. حاول مرة أخرى أو ارجع للقائمة الرئيسية.",
+                    reply_markup=InlineKeyboardMarkup([back_main_row()]))
+                return
 
         # 🔗 معالجة رابط فيديو مباشر → زر مشاهدة فوري
         url_match = re.search(r"https?://[^\s<>]+", text)
@@ -1640,6 +1893,9 @@ SEARCH_CACHE: Dict[int, Dict] = {}
 # كاش المجموعات المدمجة لكل نوع (movie/series/live) — يُملأ عند عرض الأقسام
 # البنية: {"movie": [("👻 رعب فرنسية", {"ids": [...], "count": N}), ...]}
 GROUPS_CACHE: Dict[str, List[Tuple[str, Dict]]] = {}
+
+# انتظار إدخال باسورد الكبار: {user_id: {"type", "cat_id", "page", "kind"}}
+ADULT_PENDING: Dict[int, Dict] = {}
 
 
 if __name__ == "__main__":

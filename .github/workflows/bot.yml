@@ -28,4 +28,5 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: python bot.py

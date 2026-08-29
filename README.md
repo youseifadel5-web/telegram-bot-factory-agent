@@ -16,13 +16,14 @@
 ## 🚀 التشغيل
 
 ### الأسرار في GitHub (Settings → Secrets and variables → Actions)
-أضف ثلاثة Secrets فقط:
+أضف هذه الـ Secrets فقط (لا تضع المفاتيح داخل الملفات):
 
-| Name        | Source                        |
-|-------------|-------------------------------|
-| BOT_TOKEN   | من @BotFather على تيليجرام    |
-| API_ID      | من my.telegram.org             |
-| API_HASH    | من my.telegram.org             |
+| Name          | Source                                      |
+|---------------|---------------------------------------------|
+| BOT_TOKEN     | من @BotFather على تيليجرام                  |
+| API_ID        | من my.telegram.org                          |
+| API_HASH      | من my.telegram.org                          |
+| TMDB_API_KEY  | من themoviedb.org → Settings → API (اختياري للبوسترات) |
 
 ### خطوات الرفع
 
