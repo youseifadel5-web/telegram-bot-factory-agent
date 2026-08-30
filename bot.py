@@ -66,11 +66,70 @@ def is_youseif_callback(data: str) -> bool:
 
 
 def raw_update(update):
-    if hasattr(update, "to_dict"):
-        return update.to_dict()
-    if hasattr(update, "to_json"):
-        return json.loads(update.to_json())
-    return json.loads(str(update))
+    """Convert a telebot Update into a plain Telegram Bot API dict for PTB.
+
+    pyTelegramBotAPI Update objects do NOT implement to_dict()/to_json().
+    Nested objects keep the original API payload in a ``.json`` attribute.
+    Falling back to ``str(update)`` yields invalid Python-repr text that
+    ``json.loads`` cannot parse — that silently broke every Youseif Films
+    button after the merge.
+    """
+    if update is None:
+        return {}
+    if isinstance(update, dict):
+        return update
+    if hasattr(update, "to_dict") and callable(update.to_dict):
+        try:
+            return update.to_dict()
+        except Exception:
+            pass
+    if hasattr(update, "to_json") and callable(update.to_json):
+        try:
+            return json.loads(update.to_json())
+        except Exception:
+            pass
+
+    data = {"update_id": int(getattr(update, "update_id", 0) or 0)}
+
+    cq = getattr(update, "callback_query", None)
+    if cq is not None:
+        if getattr(cq, "json", None):
+            data["callback_query"] = dict(cq.json)
+        else:
+            payload = {
+                "id": str(getattr(cq, "id", "") or ""),
+                "chat_instance": str(getattr(cq, "chat_instance", "") or ""),
+                "data": getattr(cq, "data", None),
+            }
+            fu = getattr(cq, "from_user", None)
+            if fu is not None:
+                if getattr(fu, "json", None):
+                    payload["from"] = dict(fu.json)
+                elif hasattr(fu, "to_dict"):
+                    try:
+                        payload["from"] = fu.to_dict()
+                    except Exception:
+                        pass
+            msg = getattr(cq, "message", None)
+            if msg is not None and getattr(msg, "json", None):
+                payload["message"] = dict(msg.json)
+            data["callback_query"] = payload
+
+    msg = getattr(update, "message", None)
+    if msg is not None:
+        if getattr(msg, "json", None):
+            data["message"] = dict(msg.json)
+        elif hasattr(msg, "to_dict"):
+            try:
+                data["message"] = msg.to_dict()
+            except Exception:
+                pass
+
+    edited = getattr(update, "edited_message", None)
+    if edited is not None and getattr(edited, "json", None):
+        data["edited_message"] = dict(edited.json)
+
+    return data
 
 
 def tele_update_id(update):
@@ -394,21 +453,32 @@ def handle_special_command(update):
 
 
 async def process_youseif(update):
+    """Route a telebot Update into the original Youseif PTB handlers."""
     global PTB_APP
-    raw = raw_update(update)
-    ptb_update = youseif.Update.de_json(raw, PTB_BOT)
-    if ptb_update is not None:
+    try:
+        raw = raw_update(update)
+        if not raw or (not raw.get("callback_query") and not raw.get("message")):
+            log.warning("process_youseif: empty conversion from telebot update")
+            return
+        ptb_update = youseif.Update.de_json(raw, PTB_BOT)
+        if ptb_update is None:
+            log.warning("process_youseif: PTB de_json returned None keys=%s", list(raw.keys()))
+            return
         await PTB_APP.process_update(ptb_update)
+    except Exception:
+        log.exception("process_youseif failed")
 
 
 
 def addbot_keyboard():
-    """القائمة الديناميكية لكل البوتات الموجودة داخل Add bot."""
+    """القائمة الديناميكية لكل البوتات المفعّلة داخل Add bot."""
     from telebot import types
     markup = types.InlineKeyboardMarkup(row_width=1)
-    for pid, mod in PLUGINS.items():
+    for pid, mod in active_plugins().items():
         label = str(getattr(mod, "PLUGIN_BUTTON", getattr(mod, "PLUGIN_NAME", pid)))
         markup.add(types.InlineKeyboardButton(label, callback_data=f"addbot:open:{pid}"))
+    if not active_plugins():
+        markup.add(types.InlineKeyboardButton("❌ لا توجد بوتات مفعّلة", callback_data="noop"))
     markup.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="addbot:back"))
     return markup
 
@@ -490,6 +560,9 @@ async def handle_addbot_callback(upd, uid, data):
     if not mod:
         await PTB_BOT.send_message(chat_id, "❌ الإضافة غير موجودة أو لم يتم تحميلها.")
         return True
+    if pid not in ENABLED_PLUGINS:
+        await PTB_BOT.send_message(chat_id, "⛔ هذا البوت متوقف من لوحة الأدمن.")
+        return True
 
     result = None
     try:
@@ -498,7 +571,7 @@ async def handle_addbot_callback(upd, uid, data):
             result = await result
     except Exception:
         log.exception("Add bot plugin failed: %s", pid)
-        await PTB_BOT.send_message(chat_id, "❌ تعذر تشغيل البوت. راجع ملف bot.py الخاص به.")
+        await PTB_BOT.send_message(chat_id, "❌ تعذر تشغيل البوت. راجع ملف الإضافة داخل Add bot/.")
         return True
 
     if result == "youseif":
@@ -708,7 +781,7 @@ async def poll_loop():
 
 
 async def main():
-    global PTB_APP, PTB_BOT, YOUSEIF, PLUGINS
+    global PTB_APP, PTB_BOT, YOUSEIF, PLUGINS, ENABLED_PLUGINS
 
     # Discover bot.py plugins from Add bot/ without starting another polling loop.
     PLUGINS = discover_plugins()

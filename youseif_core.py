@@ -1070,6 +1070,8 @@ def main_menu_kb(uid: int = 0) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🌙 رمضانيات", callback_data="qk:رمضانيات"),
          InlineKeyboardButton("👻 رعب", callback_data="qk:رعب")],
     ]
+    if is_admin(uid):
+        rows.append([InlineKeyboardButton("👑 لوحة الأدمن", callback_data="act:admin")])
     return InlineKeyboardMarkup(rows)
 
 
