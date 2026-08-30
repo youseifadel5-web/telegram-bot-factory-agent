@@ -1,7 +1,0 @@
-.env
-*.db
-*.sqlite
-*.sqlite3
-__pycache__/
-*.pyc
-users_data.json
