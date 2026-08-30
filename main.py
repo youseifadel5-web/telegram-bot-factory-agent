@@ -139,8 +139,18 @@ def format_results(items: List[MediaItem], title: str, page: int, pages: int) ->
     )
 
 
-async def show_results(q, uid: int, title: str, page: int = 0):
+async def show_results(q, uid: int, title: str, page: int = 0, back: str = "lib:home"):
     items: List[MediaItem] = ustate(uid).get("results") or []
+    ustate(uid)["results_back"] = back
+    if not items:
+        await safe_edit(
+            q,
+            f"{title}\n━━━━━━━━━━━━━━━\n"
+            f"❌ لا توجد نتائج حاليًا في المصادر المتاحة.\n"
+            f"جرّب بحثًا آخر أو قسمًا مختلفًا.",
+            kb.empty_results_kb(back=back),
+        )
+        return
     chunk, page, pages = page_slice(items, page)
     ustate(uid)["page"] = page
     ustate(uid)["page_items"] = chunk
@@ -149,7 +159,7 @@ async def show_results(q, uid: int, title: str, page: int = 0):
         f"✅ <b>{len(items)}</b> نتيجة (بدون تكرار)\n"
         f"📄 صفحة {page + 1}/{pages}"
     )
-    await safe_edit(q, text, kb.results_kb(chunk, page, pages))
+    await safe_edit(q, text, kb.results_kb(chunk, page, pages, back=back))
 
 
 async def show_item(q, uid: int, item: MediaItem):
@@ -169,7 +179,7 @@ async def show_item(q, uid: int, item: MediaItem):
         lines.append(f"\n📝 <i>{_esc(item.overview[:280])}</i>")
     lines.append(f"\n📡 مصادر: {', '.join(item.source_ids) or '—'}")
     ustate(uid)["current_item"] = item
-    await safe_edit(q, "\n".join(lines), kb.item_kb(item.id))
+    await safe_edit(q, "\n".join(lines), kb.item_kb(item.id, back=ustate(uid).get("results_back") or "lib:home"))
 
 
 def _esc(s: str) -> str:
@@ -206,11 +216,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("lib:type:"):
         typ = data.split(":")[-1]
         items = await run_search(uid, SearchQuery(text="", media_type=typ, limit=40, sort="rating"))
-        # empty query: use genre-ish broad search from plugins
         if not items:
             items = await run_search(uid, SearchQuery(text=typ, media_type=typ, limit=40))
+        if not items:
+            items = await run_search(uid, SearchQuery(text=typ, limit=40))
         label = {"movie": "🎬 أفلام", "series": "📺 مسلسلات", "live": "📡 قنوات"}.get(typ, typ)
-        await show_results(q, uid, label, 0)
+        await show_results(q, uid, label, 0, back="lib:home")
         return
 
     if data == "lib:countries":
@@ -225,36 +236,55 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("lib:cotype:"):
         _, _, country, typ = data.split(":", 3)
         items = await run_search(uid, SearchQuery(text=country, media_type=typ, countries=[country], limit=40))
-        await show_results(q, uid, f"🌍 {country} · {typ}", 0)
+        if not items:
+            items = await run_search(uid, SearchQuery(text=country, media_type=typ, limit=40))
+        await show_results(q, uid, f"🌍 {country} · {typ}", 0, back=f"lib:country:{country}")
         return
 
     if data.startswith("lib:cogenre:"):
         parts = data.split(":")
         country, genre = parts[2], parts[3]
         items = await run_search(uid, SearchQuery(text=genre, countries=[country], genres=[genre], limit=40))
-        await show_results(q, uid, f"{genre} · {country}", 0)
+        if not items:
+            items = await run_search(uid, SearchQuery(text=f"{genre} {country}", limit=40))
+        await show_results(q, uid, f"🎭 {genre} · 🌍 {country}", 0, back=f"lib:country:{country}")
         return
 
     if data.startswith("lib:genre:"):
         genre = data.split(":")[-1]
-        await safe_edit(q, f"🎭 <b>{genre}</b>\nاختر الدولة أو الترتيب:", kb.genre_countries_kb(genre))
+        labels = {"horror": "👻 رعب", "action": "💥 أكشن", "drama": "🎭 دراما", "comedy": "😂 كوميدي",
+                  "romance": "❤️ رومانسي", "scifi": "🚀 خيال علمي", "animation": "🧸 أنيميشن"}
+        label = labels.get(genre, genre)
+        await safe_edit(q, f"{label}\n━━━━━━━━━━━━━━━\nاختر الدولة أو اضغط «عرض الكل»:", kb.genre_countries_kb(genre))
         return
 
     if data.startswith("lib:gencountry:"):
         _, _, genre, country = data.split(":", 3)
         items = await run_search(uid, SearchQuery(text=genre, genres=[genre], countries=[country], limit=40))
-        await show_results(q, uid, f"{genre} · {country}", 0)
+        if not items:
+            items = await run_search(uid, SearchQuery(text=f"{genre} {country}", limit=40))
+        await show_results(q, uid, f"🎭 {genre} · 🌍 {country}", 0, back=f"lib:genre:{genre}")
         return
 
     if data.startswith("lib:gensort:"):
         _, _, genre, sort = data.split(":", 3)
         items = await run_search(uid, SearchQuery(text=genre, genres=[genre], sort=sort, limit=40))
-        await show_results(q, uid, f"{genre} · {sort}", 0)
+        if not items:
+            # fallback: text search without strict genre tag (plugins may lack genre metadata)
+            items = await run_search(uid, SearchQuery(text=genre, sort=sort, limit=40))
+        await show_results(q, uid, f"🎭 {genre} · {sort}", 0, back=f"lib:genre:{genre}")
         return
 
     if data == "lib:search":
         ustate(uid)["awaiting"] = "search"
         await safe_edit(q, "🔍 <b>بحث</b>\n\nاكتب اسم الفيلم أو المسلسل:", kb.back_home())
+        return
+
+    if data == "lib:results":
+        items = ustate(uid).get("results") or []
+        page = int(ustate(uid).get("page") or 0)
+        back = ustate(uid).get("results_back") or "lib:home"
+        await show_results(q, uid, "📋 النتائج", page, back=back)
         return
 
     if data.startswith("lib:page:"):

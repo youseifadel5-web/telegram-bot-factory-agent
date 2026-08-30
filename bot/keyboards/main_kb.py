@@ -27,6 +27,14 @@ COUNTRIES = [
 ]
 
 
+def _nav(back: str = "lib:home", home: str = "home") -> list:
+    """Standard bottom row: رجوع + الرئيسية — always present."""
+    return [[
+        InlineKeyboardButton("⬅️ رجوع", callback_data=back),
+        InlineKeyboardButton("🏠 الرئيسية", callback_data=home),
+    ]]
+
+
 def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton("📚 المكتبة", callback_data="lib:home")],
@@ -43,7 +51,6 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🕘 آخر مشاهدة", callback_data="user:hist"),
         ],
     ]
-    # genres row
     g_row = []
     for label, gid in GENRES[:4]:
         g_row.append(InlineKeyboardButton(label, callback_data=f"lib:genre:{gid}"))
@@ -58,8 +65,8 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def library_home() -> InlineKeyboardMarkup:
-    return main_menu()
+def library_home(is_admin: bool = False) -> InlineKeyboardMarkup:
+    return main_menu(is_admin=is_admin)
 
 
 def countries_kb() -> InlineKeyboardMarkup:
@@ -72,14 +79,16 @@ def countries_kb() -> InlineKeyboardMarkup:
             row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton("🏠 الرئيسية", callback_data="home")])
+    rows.extend(_nav(back="lib:home"))
     return InlineKeyboardMarkup(rows)
 
 
 def country_genres_kb(country: str) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton("🎬 أفلام", callback_data=f"lib:cotype:{country}:movie"),
-         InlineKeyboardButton("📺 مسلسلات", callback_data=f"lib:cotype:{country}:series")],
+        [
+            InlineKeyboardButton("🎬 أفلام", callback_data=f"lib:cotype:{country}:movie"),
+            InlineKeyboardButton("📺 مسلسلات", callback_data=f"lib:cotype:{country}:series"),
+        ],
     ]
     row = []
     for label, gid in GENRES:
@@ -89,10 +98,7 @@ def country_genres_kb(country: str) -> InlineKeyboardMarkup:
             row = []
     if row:
         rows.append(row)
-    rows.append([
-        InlineKeyboardButton("⬅️ رجوع", callback_data="lib:countries"),
-        InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
-    ])
+    rows.extend(_nav(back="lib:countries"))
     return InlineKeyboardMarkup(rows)
 
 
@@ -106,49 +112,56 @@ def genre_countries_kb(genre: str) -> InlineKeyboardMarkup:
             row = []
     if row:
         rows.append(row)
+    # direct browse whole genre (no country filter) — was missing as primary action
     rows.append([
+        InlineKeyboardButton("📋 عرض الكل", callback_data=f"lib:gensort:{genre}:rating"),
         InlineKeyboardButton("🔥 الأكثر", callback_data=f"lib:gensort:{genre}:popular"),
+    ])
+    rows.append([
         InlineKeyboardButton("🆕 الأحدث", callback_data=f"lib:gensort:{genre}:newest"),
         InlineKeyboardButton("⭐ تقييم", callback_data=f"lib:gensort:{genre}:rating"),
     ])
-    rows.append([
-        InlineKeyboardButton("⬅️ رجوع", callback_data="lib:home"),
-        InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
-    ])
+    rows.extend(_nav(back="lib:home"))
     return InlineKeyboardMarkup(rows)
 
 
-def results_kb(items, page: int, pages: int, prefix: str = "lib:open") -> InlineKeyboardMarkup:
+def results_kb(items, page: int, pages: int, prefix: str = "lib:open", back: str = "lib:home") -> InlineKeyboardMarkup:
     rows = []
-    for i, it in enumerate(items):
-        icon = "🎬" if it.type.value == "movie" else ("📺" if it.type.value == "series" else "📡")
-        badge = ("🖼" if it.poster else "") + ("📝" if it.overview else "")
-        rows.append([InlineKeyboardButton(
-            f"{icon} {it.title[:30]} {badge}",
-            callback_data=f"{prefix}:{page}:{i}",
-        )])
-    if pages > 1:
-        nav = []
-        if page > 0:
-            nav.append(InlineKeyboardButton("⬅️", callback_data=f"lib:page:{page-1}"))
-        nav.append(InlineKeyboardButton(f"{page+1}/{pages}", callback_data="noop"))
-        if page < pages - 1:
-            nav.append(InlineKeyboardButton("➡️", callback_data=f"lib:page:{page+1}"))
-        rows.append(nav)
-    rows.append([
-        InlineKeyboardButton("⬅️ رجوع", callback_data="lib:home"),
-        InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
-    ])
+    if not items:
+        rows.append([InlineKeyboardButton("🔍 بحث بديل", callback_data="lib:search")])
+    else:
+        for i, it in enumerate(items):
+            typ = it.type.value if hasattr(it.type, "value") else str(it.type)
+            icon = "🎬" if typ == "movie" else ("📺" if typ == "series" else "📡")
+            badge = ("🖼" if it.poster else "") + ("📝" if it.overview else "")
+            title = (it.title or "بدون عنوان")[:30]
+            rows.append([InlineKeyboardButton(
+                f"{icon} {title} {badge}".strip(),
+                callback_data=f"{prefix}:{page}:{i}",
+            )])
+        if pages > 1:
+            nav = []
+            if page > 0:
+                nav.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"lib:page:{page-1}"))
+            nav.append(InlineKeyboardButton(f"{page+1}/{pages}", callback_data="noop"))
+            if page < pages - 1:
+                nav.append(InlineKeyboardButton("التالي ➡️", callback_data=f"lib:page:{page+1}"))
+            rows.append(nav)
+    rows.extend(_nav(back=back))
     return InlineKeyboardMarkup(rows)
 
 
-def item_kb(item_id: str) -> InlineKeyboardMarkup:
+def item_kb(item_id: str, back: str = "lib:home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("▶️ مشاهدة", callback_data=f"play:start:{item_id}")],
-        [InlineKeyboardButton("❤️ مفضلة", callback_data=f"user:addfav:{item_id}"),
-         InlineKeyboardButton("🤖 مشابه", callback_data=f"ai:similar:{item_id}")],
-        [InlineKeyboardButton("⬅️ رجوع", callback_data="lib:home"),
-         InlineKeyboardButton("🏠 الرئيسية", callback_data="home")],
+        [
+            InlineKeyboardButton("❤️ مفضلة", callback_data=f"user:addfav:{item_id}"),
+            InlineKeyboardButton("🤖 مشابه", callback_data=f"ai:similar:{item_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ رجوع للنتائج", callback_data="lib:results"),
+            InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
+        ],
     ])
 
 
@@ -156,13 +169,16 @@ def qualities_kb(item_id: str, qualities) -> InlineKeyboardMarkup:
     rows = []
     row = []
     for q in qualities:
-        row.append(InlineKeyboardButton(q.label, callback_data=f"play:q:{item_id}:{q.label}"))
+        row.append(InlineKeyboardButton(str(q.label), callback_data=f"play:q:{item_id}:{q.label}"))
         if len(row) == 2:
             rows.append(row)
             row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton("⬅️ رجوع", callback_data=f"lib:item:{item_id}")])
+    rows.append([
+        InlineKeyboardButton("⬅️ رجوع", callback_data=f"lib:item:{item_id}"),
+        InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
+    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -174,7 +190,10 @@ def admin_home_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🧠 AI", callback_data="adm:ai")],
         [InlineKeyboardButton("📝 السجل", callback_data="adm:audit")],
         [InlineKeyboardButton("🗄 الكاش", callback_data="adm:cache")],
-        [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")],
+        [
+            InlineKeyboardButton("⬅️ رجوع", callback_data="home"),
+            InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
+        ],
     ])
 
 
@@ -184,12 +203,23 @@ def admin_blocks_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("➕ حظر محتوى", callback_data="adm:blockadd")],
         [InlineKeyboardButton("📦 حظر جماعي", callback_data="adm:blockbulk")],
         [InlineKeyboardButton("🔓 فك حظر", callback_data="adm:unblock")],
-        [InlineKeyboardButton("⬅️ رجوع", callback_data="adm:home")],
+        [
+            InlineKeyboardButton("⬅️ رجوع", callback_data="adm:home"),
+            InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
+        ],
     ])
 
 
-def back_home() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("⬅️ رجوع", callback_data="lib:home"),
-        InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
-    ]])
+def back_home(back: str = "lib:home") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(_nav(back=back))
+
+
+def empty_results_kb(back: str = "lib:home") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 بحث", callback_data="lib:search")],
+        [InlineKeyboardButton("📚 المكتبة", callback_data="lib:home")],
+        [
+            InlineKeyboardButton("⬅️ رجوع", callback_data=back),
+            InlineKeyboardButton("🏠 الرئيسية", callback_data="home"),
+        ],
+    ])
