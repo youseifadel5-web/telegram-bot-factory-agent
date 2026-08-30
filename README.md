@@ -1,60 +1,62 @@
-# Unified Telegram Bot
+# Unified Arabic Media Platform V3
 
-## الهيكل
-- `bot.py` هو البوت الأساسي والـpolling الوحيد (Token واحد).
-- `Add bot/` هو المكان الوحيد لإضافة البوتات الفرعية.
-- كل ملف `.py` مباشر داخل `Add bot/` يُحمَّل تلقائيًا كبوت فرعي. اسم الملف لا يهم.
-- لا تحتاج لإنشاء مجلد أو ملف إعداد إضافي للبوت الفرعي.
-- بعد وضع الملف: من لوحة الأدمن → **إدارة البوتات** → **إعادة تحميل البوتات** (أو أعد تشغيل الخدمة).
+منصة تيليجرام عربية موحّدة: مكتبات متعددة + AI + فحص تشغيل + إدارة حظر.
 
-## البوابة
-- `🎬 بوت سينماء`: يعرض كل البوتات **المفعّلة** الموجودة في `Add bot/`.
-- `🔍 بحث`: يبحث في كل البوتات المفعّلة التي توفر hook باسم `search`.
-- `👑 لوحة التحكم`: تظهر للـ`ADMIN_ID` فقط في البوابة الخارجية، وتشمل:
-  - إحصائيات / كاش / باسورد الكبار / رسالة جماعية (نظام يوسف)
-  - **إدارة البوتات**: تفعيل/إيقاف أي بوت مكتشف + إعادة تحميل قائمة `Add bot/`
+## التشغيل
 
-## طريقة إضافة بوت جديد
-1. أنشئ ملفًا مثل `Add bot/MyBot.py` (بدون polling).
-2. وفّر على الأقل:
-   ```python
-   PLUGIN_ID = "mybot"
-   PLUGIN_NAME = "بوت تجريبي"
-   PLUGIN_BUTTON = "🤖 بوت تجريبي"
-
-   def open_plugin(call, context):
-       # افتح واجهتك أو أرجع مسارًا معروفًا للمضيف
-       # أمثلة جاهزة:
-       # return "youseif"              # واجهة يوسف فيلم
-       # return "cinema:hub_nova"      # واجهة سينما نوفا
-       return "cinema:hub_orion"
-
-   def handle_callback(call, context):
-       # اختياري — إن كان البوت يعتمد على cinema_core
-       return bool(context["cinema"].handle_callbacks(call))
-
-   def handle_message(update, context):
-       return False
-
-   def search(query, context):
-       # اختياري — للبحث الموحد
-       return {"movie": [], "series": []}
-   ```
-3. من لوحة الأدمن اضغط **إعادة تحميل البوتات** ثم فعّله إن لزم.
-
-> مهم: ملف البوت الفرعي **لا يجب** أن يبدأ `polling` أو `run_polling()` بنفسه.
-
-## الأنظمة المدمجة
-- **سينما نوفا / أوريون بلس**: عبر `cinema_core.py` + ملفات الإضافة في `Add bot/`.
-- **Youseif Films**: عبر `youseif_core.py` + `Add bot/Youseif_Films.py` (بدون polling مستقل).
-
-## الأسرار
-```env
-ADMIN_ID=
-API_HASH=
-API_ID=
-BOT_TOKEN=
-TMDB_API_KEY=
+```bash
+pip install -r requirements.txt
+cp .env.example .env   # املأ BOT_TOKEN و ADMIN_IDS
+python main.py
 ```
 
-إعدادات IPTV/العرض تبقى في `config.py`.
+## الأسرار (من البيئة فقط)
+
+| المتغير | مطلوب |
+|---------|--------|
+| `BOT_TOKEN` | نعم |
+| `ADMIN_IDS` / `ADMIN_ID` | للوحة الأدمن |
+| `OPENROUTER_API_KEY` | اختياري — AI |
+| `OPENROUTER_MODEL` | اختياري |
+
+البوت يعمل **بدون** OpenRouter (بحث عادي + heuristic).
+
+## الهيكل
+
+```
+main.py                 # نقطة الدخول — python-telegram-bot فقط
+core/                   # نماذج، بحث، دمج، حظر، plugins
+ai/                     # OpenRouter + intent + recommender
+playback/               # فحص HLS/MP4/DASH + جودات
+database/               # SQLite + فهارس
+plugins/                # اكتشاف تلقائي
+  youseif/
+  cinema_nova/
+  orion_plus/
+  test_source/          # مثال لإضافة مصدر جديد
+bot/keyboards/          # واجهة عربية
+tests/
+```
+
+## إضافة مصدر جديد
+
+1. أنشئ `plugins/my_source/plugin.py`
+2. نفّذ `MediaSourcePlugin` (`search`, `get_details`, …)
+3. أعد التشغيل — يظهر في اللوج: `[PLUGIN] ... loaded`
+
+لا تعديل على نواة البحث.
+
+## الميزات
+
+- مكتبة عربية: أفلام / مسلسلات / أنواع / دول
+- بحث موحّد بدون تكرار (بوستر + تعريف أولاً)
+- اطلب من AI — فهم نية + بحث حقيقي + اقتراحات مشابهة
+- مشاهدة بعد فحص المصدر والجودات
+- أدمن: مصادر، حظر فردي/جماعي، سجل، كاش، AI stats
+- عزل أخطاء كل plugin
+
+## اختبار سريع
+
+```bash
+PYTHONPATH=. python -c "from core.plugin_manager import PluginManager; p=PluginManager(); p.discover(); print(list(p.plugins))"
+```

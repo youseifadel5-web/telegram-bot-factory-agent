@@ -1,4 +1,4 @@
-pyTelegramBotAPI>=4.15,<5
 python-telegram-bot==20.7
 httpx==0.25.2
-requests>=2.31,<3
+pytest>=7.4
+pytest-asyncio>=0.21
