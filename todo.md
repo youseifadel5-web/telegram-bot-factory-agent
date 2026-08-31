@@ -46,3 +46,6 @@
 - [x] Map ADMIN_ID, API_HASH, API_ID, and BOT_TOKEN from GitHub Actions secrets without printing values
 - [x] Set the bot display name to يوسف بوت in project configuration and setup documentation
 - [x] Verify the workflow YAML and repository Actions visibility after pushing it
+- [ ] Trigger the Yusuf Bot workflow manually via GitHub API or verify its automatic run
+- [ ] Capture and analyze the workflow run logs for successful bot startup and secret presence
+- [ ] Verify the Mini App endpoint and bot command responsiveness after the GitHub run
