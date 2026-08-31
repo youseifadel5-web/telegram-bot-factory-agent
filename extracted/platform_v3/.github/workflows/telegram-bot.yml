@@ -1,0 +1,74 @@
+name: Telegram Bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Bot run mode'
+        required: true
+        default: 'start'
+        type: choice
+        options:
+          - start
+          - test
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/pages-build-deployment.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-bot-main
+  cancel-in-progress: true
+
+jobs:
+  bot:
+    name: Run Telegram Bot
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+      AI_TIMEOUT: '25'
+      PLUGIN_TIMEOUT: '12'
+      HTTP_TIMEOUT: '8'
+      PLAYBACK_TIMEOUT: '8'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$BOT_TOKEN" || { echo 'ERROR: BOT_TOKEN secret is missing.'; exit 1; }
+          test -n "$ADMIN_IDS" || echo 'WARNING: ADMIN_IDS secret is empty; admin panel will be unavailable.'
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo 'INFO: OPENROUTER_API_KEY is empty; bot will use AI fallback/heuristics.'
+          else
+            echo 'INFO: OpenRouter is configured.'
+          fi
+
+      - name: Run automated verification
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'test' }}
+        run: PYTHONPATH=. python scripts/verify_v3.py
+
+      - name: Start Telegram bot
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'start' }}
+        run: PYTHONPATH=. python main.py
