@@ -30,6 +30,10 @@ const movies = [
 
 const categories = ["الكل", "أفلام", "مسلسلات", "أنمي", "وثائقي", "أكشن", "رعب", "كوميديا"];
 const castById: Record<number, string[]> = { 1: ["جيمس هاربر", "ليلى موران"], 2: ["آدم كول", "سارة نوفاك"], 3: ["رايلي ستون", "نورا كين"], 4: ["مريم حداد", "إياد منصور"], 5: ["كريم سالم", "هانا لو"], 6: ["نور عادل", "يوسف جابر"] };
+const featuredMovies = movies.filter((movie) => movie.quality === "4K");
+const trendingMovies = movies.filter((movie) => ["إثارة", "جريمة", "خيال علمي"].includes(movie.genre));
+const latestMovies = [...movies].sort((a, b) => Number(b.year) - Number(a.year));
+const recommendationMovies = movies.filter((movie) => !trendingMovies.some((item) => item.id === movie.id)).slice(0, 4);
 
 function MovieCard({ movie, onOpen }: { movie: (typeof movies)[number]; onOpen: () => void }) {
   return (
@@ -106,13 +110,15 @@ export default function Home() {
 
         <div className="category-row">{categories.map((category) => <button key={category} className={activeCategory === category ? "category active" : "category"} onClick={() => setActiveCategory(category)}>{category}</button>)}</div>
 
-        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">مختارات اليوم</span><h2>الأكثر مشاهدة الآن</h2></div><button className="text-link">عرض الكل <ChevronLeft size={16} /></button></div>{filtered.length ? <div className="movie-grid">{filtered.slice(0, 4).map((movie) => <MovieCard movie={movie} key={movie.id} onOpen={() => setSelected(movie)} />)}</div> : <div className="empty-state"><Search size={24} /><strong>لم نجد نتائج مطابقة</strong><span>جرّب كلمة بحث مختلفة أو استكشف التصنيفات.</span></div>}</section>
+        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">مختارات اليوم</span><h2>الأفلام المميزة</h2></div><button className="text-link">عرض الكل <ChevronLeft size={16} /></button></div>{filtered.length ? <div className="movie-grid">{(query.trim() ? filtered.slice(0, 4) : featuredMovies).map((movie) => <MovieCard movie={movie} key={movie.id} onOpen={() => setSelected(movie)} />)}</div> : <div className="empty-state"><Search size={24} /><strong>لم نجد نتائج مطابقة</strong><span>جرّب كلمة بحث مختلفة أو استكشف التصنيفات.</span></div>}</section>
+
+        {!query.trim() && <section className="section-block"><div className="section-heading"><div><span className="section-kicker">الأكثر طلباً</span><h2>Trending الآن</h2></div><button className="text-link">عرض الكل <ChevronLeft size={16} /></button></div><div className="movie-grid">{trendingMovies.map((movie) => <MovieCard movie={movie} key={`trending-${movie.id}`} onOpen={() => setSelected(movie)} />)}</div></section>}
 
         <section className="wide-promo"><div><span className="section-kicker">تجربة مشاهدة أفضل</span><h2>جودة عالية.<br /><span>بدون تعقيد.</span></h2><p>اختر الجودة التي تناسب اتصالك واستمتع بتجربة سلسة.</p><button className="outline-button">استكشف الجودات <ChevronLeft size={16} /></button></div><div className="quality-stack"><div className="quality-tile back">720p</div><div className="quality-tile mid">1080p</div><div className="quality-tile front"><strong>4K</strong><small>Ultra HD</small></div></div></section>
 
-        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">تصفح حسب ذوقك</span><h2>وصل حديثاً</h2></div><div className="arrows"><button aria-label="السابق" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronRight size={18} /></button><button aria-label="التالي" onClick={() => setPage((value) => value + 1)}><ChevronLeft size={18} /></button></div></div><div className="movie-grid">{filtered.slice(4).map((movie) => <MovieCard movie={movie} key={movie.id} onOpen={() => setSelected(movie)} />)}</div></section>
+        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">تصفح حسب ذوقك</span><h2>وصل حديثاً</h2></div><div className="arrows"><button aria-label="السابق" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronRight size={18} /></button><button aria-label="التالي" onClick={() => setPage((value) => value + 1)}><ChevronLeft size={18} /></button></div></div><div className="movie-grid">{(query.trim() ? filtered.slice(4) : latestMovies.slice(0, 4)).map((movie) => <MovieCard movie={movie} key={movie.id} onOpen={() => setSelected(movie)} />)}</div></section>
 
-        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">اختيارات تناسبك</span><h2>ربما يعجبك أيضاً</h2></div><button className="text-link">تحديث <ChevronLeft size={16} /></button></div><div className="movie-grid">{movies.slice(2, 6).map((movie) => <MovieCard movie={movie} key={`recommend-${movie.id}`} onOpen={() => setSelected(movie)} />)}</div></section>
+        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">اختيارات تناسبك</span><h2>ربما يعجبك أيضاً</h2></div><button className="text-link">تحديث <ChevronLeft size={16} /></button></div><div className="movie-grid">{recommendationMovies.map((movie) => <MovieCard movie={movie} key={`recommend-${movie.id}`} onOpen={() => setSelected(movie)} />)}</div></section>
       </main>
 
       <nav className="bottom-nav"><button className="nav-item active"><HomeIcon size={19} /><span>الرئيسية</span></button><button className="nav-item"><Compass size={19} /><span>اكتشف</span></button><button className="nav-item center"><span><Play size={21} fill="currentColor" /></span><small>شاهد الآن</small></button><button className="nav-item"><Bookmark size={19} /><span>قائمتي</span></button><button className="nav-item"><Grid2X2 size={19} /><span>المزيد</span></button></nav>
