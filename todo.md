@@ -2,8 +2,8 @@
 
 - [x] Telegram Mini App shell with shared movie browsing experience
 - [x] Movie cards with thumbnail image, title, metadata, and actions
-- [x] Home sections for featured, trending, latest, and recommendations
-- [x] Search with suggestions, pagination, and empty/error states
+- [ ] Home sections for featured, trending, latest, and recommendations
+- [ ] Search with suggestions, pagination, and empty/error states
 - [ ] Categories, channels, topics, and filtering screens
 - [ ] Movie details screen with synopsis, poster, cast metadata, and available qualities
 - [ ] Playback screen with safe external/player link handling
@@ -15,9 +15,9 @@
 - [ ] Database models for users, favorites, history, and cached catalog data
 - [ ] Favorites and watch history synced between Bot and Mini App
 - [ ] Vitest coverage for signing, decoding, API adapter, and core UI behavior
-- [x] Responsive Arabic RTL visual design and accessibility review
+- [ ] Responsive Arabic RTL visual design and accessibility review
 - [ ] README with local setup, Telegram BotFather setup, and deployment instructions
-- [ ] GitHub repository integration and push to selected repository
+- [x] GitHub repository integration and push to selected repository
 - [ ] Add explicit Featured, Trending, Latest, and Recommendations home sections with distinct data/grouping
 - [ ] Implement search suggestions, pagination, and dedicated loading, empty, and error states
 - [ ] Perform and document an accessibility pass with focus-visible states, semantic landmarks, contrast, and keyboard behavior
