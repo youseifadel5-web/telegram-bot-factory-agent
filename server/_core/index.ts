@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { movieConfig } from "@shared/movieConfig";
 import { movieFrRequest, normalizeMovies } from "../moviefr";
 import { createTelegramBot, getTelegramBot, startTelegramBot } from "../telegramBot";
+import { validateTelegramInitData } from "../telegramAuth";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -40,6 +41,10 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   createTelegramBot();
+  app.post("/api/telegram/validate", (req, res) => {
+    const result = validateTelegramInitData(String(req.body?.initData ?? ""));
+    return result.valid ? res.json(result) : res.status(401).json({ valid: false, user: null });
+  });
   app.get("/api/movies/search", async (req, res) => {
     try {
       const query = String(req.query.q ?? "").trim();
