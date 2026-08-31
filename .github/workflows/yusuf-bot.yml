@@ -38,5 +38,16 @@ jobs:
         run: pnpm run check && pnpm test
       - name: Build
         run: pnpm run build
+      - name: Verify runtime environment
+        run: |
+          for key in ADMIN_ID API_ID API_HASH BOT_TOKEN; do
+            if [ -n "${!key}" ]; then echo "$key=present"; else echo "$key=missing"; exit 1; fi
+          done
       - name: Run يوسف بوت
+        env:
+          ADMIN_ID: ${{ secrets.ADMIN_ID }}
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          NODE_ENV: production
         run: pnpm run start

@@ -33,12 +33,12 @@
 - [x] Add cast metadata rendering to the movie details sheet
 - [x] Add search pagination state and a visible retry/error state
 - [x] Document the accessibility review and keyboard behavior checks
-- [ ] Diagnose reported complete failure to run the Telegram Bot and Mini App
-- [ ] Inspect server, browser, and network logs for startup/runtime errors
-- [ ] Verify four-secret configuration and Telegram startup behavior without leaking values
+- [x] Diagnose reported complete failure to run the Telegram Bot and Mini App
+- [x] Inspect server, browser, and network logs for startup/runtime errors
+- [x] Verify four-secret configuration and Telegram startup behavior without leaking values
 - [ ] Verify MovieFR endpoints, response decoding, and play-link routes against the supplied API report
 - [ ] Re-test Bot commands, Mini App launch, search, details, favorites, history, and playback end to end
-- [ ] Document the root cause and corrected setup steps
+- [x] Document the root cause and corrected setup steps
 - [x] Start Telegram Bot automatically after the four secrets are configured without requiring a fifth environment variable or UI action button
 - [x] Make local and production startup modes deterministic and document the automatic behavior
 - [ ] Verify bot startup logs and Mini App health after secrets are configured
@@ -46,6 +46,16 @@
 - [x] Map ADMIN_ID, API_HASH, API_ID, and BOT_TOKEN from GitHub Actions secrets without printing values
 - [x] Set the bot display name to يوسف بوت in project configuration and setup documentation
 - [x] Verify the workflow YAML and repository Actions visibility after pushing it
-- [ ] Trigger the Yusuf Bot workflow manually via GitHub API or verify its automatic run
+- [x] Trigger the Yusuf Bot workflow manually via GitHub API or verify its automatic run
 - [ ] Capture and analyze the workflow run logs for successful bot startup and secret presence
 - [ ] Verify the Mini App endpoint and bot command responsiveness after the GitHub run
+- [ ] Diagnose why Yusuf Bot does not respond to repeated /start commands despite an in-progress GitHub run
+- [ ] Inspect live workflow logs and Telegram polling startup errors
+- [ ] Verify bot identity and Telegram update delivery without exposing the bot token
+- [ ] Test a real /start response after the fix
+- [ ] Verify the configured BOT_TOKEN resolves to @YouseifJooRdbot without exposing the token
+- [ ] Check for Telegram webhook/polling conflicts affecting @YouseifJooRdbot
+- [ ] Fix Yusuf Bot workflow secret propagation so all four secret names reach the runtime process
+- [ ] Make Telegram-only startup independent of Manus OAuth environment variables
+- [ ] Re-run the workflow and capture a successful polling startup log for @YouseifJooRdbot
+- [ ] Test /start after the corrected runtime starts
