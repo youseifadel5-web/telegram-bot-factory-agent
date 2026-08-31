@@ -75,7 +75,18 @@ export function createTelegramBot() {
   return bot;
 }
 
+const botSearchBuckets = new Map<number, { startedAt: number; count: number }>();
+function allowBotSearch(userId: number, limit = 10, windowMs = 60_000) {
+  const now = Date.now();
+  const bucket = botSearchBuckets.get(userId);
+  if (!bucket || now - bucket.startedAt >= windowMs) { botSearchBuckets.set(userId, { startedAt: now, count: 1 }); return true; }
+  if (bucket.count >= limit) return false;
+  bucket.count += 1;
+  return true;
+}
+
 async function sendSearch(ctx: any, query: string) {
+  if (ctx.from && !allowBotSearch(ctx.from.id)) return ctx.reply("لقد تجاوزت حد البحث المسموح به (10 طلبات في الدقيقة). جرّب مرة أخرى لاحقاً.");
   try {
     const payload = await movieFrRequest(movieConfig.endpoints.search, { kw: query, pn: 1 });
     const results = normalizeMovies(payload).slice(0, 6);

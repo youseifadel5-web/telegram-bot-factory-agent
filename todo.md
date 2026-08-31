@@ -6,12 +6,12 @@
 - [x] Search with suggestions, pagination, and empty/error states
 - [ ] Categories, channels, topics, and filtering screens
 - [x] Movie details screen with synopsis, poster, cast metadata, and available qualities
-- [ ] Playback screen with safe external/player link handling
+- [x] Playback screen with safe external/player link handling
 - [x] Telegram Bot command and callback flow
 - [x] Telegram Web App launch button and init-data validation
 - [ ] MovieFR API adapter with centralized headers and response decoding
 - [x] Secure server-side secret and token handling
-- [ ] Caching, request throttling, timeout, and upstream error handling
+- [x] Caching, request throttling, timeout, and upstream error handling
 - [x] Database models for users, favorites, history, and cached catalog data
 - [ ] Favorites and watch history synced between Bot and Mini App
 - [x] Vitest coverage for signing, decoding, API adapter, and core UI behavior
