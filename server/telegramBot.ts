@@ -127,9 +127,7 @@ async function sendSearch(ctx: any, query: string) {
 export async function startTelegramBot() {
   const instance = bot ?? createTelegramBot();
   if (!instance) return false;
-  if (process.env.TELEGRAM_MODE === "polling") {
-    await instance.start({ onStart: (info) => console.log(`[Telegram] @${info.username} polling started`) });
-  }
+  await instance.start({ onStart: (info) => console.log(`[Telegram] @${info.username} polling started`) });
   return true;
 }
 

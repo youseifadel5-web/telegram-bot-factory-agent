@@ -16,7 +16,6 @@ jobs:
       API_ID: ${{ secrets.API_ID }}
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       NODE_ENV: production
-      TELEGRAM_MODE: polling
     steps:
       - name: Checkout
         uses: actions/checkout@v4

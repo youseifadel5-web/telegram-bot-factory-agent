@@ -39,10 +39,10 @@
 - [ ] Verify MovieFR endpoints, response decoding, and play-link routes against the supplied API report
 - [ ] Re-test Bot commands, Mini App launch, search, details, favorites, history, and playback end to end
 - [ ] Document the root cause and corrected setup steps
-- [ ] Start Telegram Bot automatically after the four secrets are configured without requiring a fifth environment variable or UI action button
-- [ ] Make local and production startup modes deterministic and document the automatic behavior
+- [x] Start Telegram Bot automatically after the four secrets are configured without requiring a fifth environment variable or UI action button
+- [x] Make local and production startup modes deterministic and document the automatic behavior
 - [ ] Verify bot startup logs and Mini App health after secrets are configured
-- [ ] Add a visible GitHub Actions workflow named Yusuf Bot with workflow_dispatch / Run workflow support
-- [ ] Map ADMIN_ID, API_HASH, API_ID, and BOT_TOKEN from GitHub Actions secrets without printing values
-- [ ] Set the bot display name to يوسف بوت in project configuration and setup documentation
-- [ ] Verify the workflow YAML and repository Actions visibility after pushing it
+- [x] Add a visible GitHub Actions workflow named Yusuf Bot with workflow_dispatch / Run workflow support
+- [x] Map ADMIN_ID, API_HASH, API_ID, and BOT_TOKEN from GitHub Actions secrets without printing values
+- [x] Set the bot display name to يوسف بوت in project configuration and setup documentation
+- [x] Verify the workflow YAML and repository Actions visibility after pushing it

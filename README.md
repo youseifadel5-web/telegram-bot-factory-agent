@@ -66,3 +66,7 @@ GET /api/movies/:id
 3. ضع `ADMIN_ID` كرقم حساب Telegram الإداري، و`API_ID` و`API_HASH` من بوابة Telegram الرسمية.
 4. للتشغيل المحلي استخدم polling مع `TELEGRAM_MODE=polling`. للإنتاج استخدم Webhook على `/api/telegram/webhook` خلف HTTPS، ثم وجّه تحديثات Telegram إلى رابط الخادم العام.
 5. بعد الإقلاع اختبر `/start`، ثم افتح زر Movie VIP، وجرّب البحث والتفاصيل والجودة والمشاهدة. لا ترفع ملف `.env` أو أي قيمة سرية إلى GitHub.
+
+## التشغيل التلقائي باسم يوسف بوت
+
+عند وجود الأسرار الأربعة `ADMIN_ID` و`API_ID` و`API_HASH` و`BOT_TOKEN` يبدأ البوت تلقائياً بالـpolling عند تشغيل الخادم؛ لا يحتاج المشروع إلى `TELEGRAM_MODE` أو زر تشغيل إضافي. يظهر workflow باسم **يوسف بوت — فحص وتشغيل** في تبويب **Actions**، ويمكن تشغيله يدوياً من زر **Run workflow** بعد حفظ الأسرار نفسها في **Settings → Secrets and variables → Actions**. قيمة الأسرار لا تُطبع في السجلات.

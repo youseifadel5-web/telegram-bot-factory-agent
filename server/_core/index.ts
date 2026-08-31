@@ -126,7 +126,7 @@ async function startServer() {
 
   server.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}/`);
-    if (process.env.TELEGRAM_MODE === "polling") await startTelegramBot();
+    await startTelegramBot();
   });
 }
 
