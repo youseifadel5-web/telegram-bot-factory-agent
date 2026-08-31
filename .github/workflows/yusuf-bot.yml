@@ -2,8 +2,6 @@ name: يوسف بوت
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   validate-and-run:

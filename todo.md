@@ -59,3 +59,6 @@
 - [ ] Make Telegram-only startup independent of Manus OAuth environment variables
 - [ ] Re-run the workflow and capture a successful polling startup log for @YouseifJooRdbot
 - [ ] Test /start after the corrected runtime starts
+- [ ] Confirm extra account secrets are not required by Yusuf Bot and only the four mapped names are consumed
+- [ ] Inspect the latest workflow run after the user added the secrets and capture the exact non-secret failure message
+- [ ] Check whether the BOT_TOKEN identity matches @YouseifJooRdbot without exposing its value
