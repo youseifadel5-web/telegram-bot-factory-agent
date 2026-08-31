@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bookmark,
   ChevronLeft,
@@ -51,10 +51,35 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<(typeof movies)[number] | null>(null);
   const [saved, setSaved] = useState<number[]>([]);
+  const [remoteMovies, setRemoteMovies] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [searchState, setSearchState] = useState<"idle" | "loading" | "error">("idle");
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const value = query.trim();
+    if (!value) { setRemoteMovies([]); setSuggestions([]); setSearchState("idle"); setPage(1); return; }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSearchState("loading");
+      try {
+        const response = await fetch(`/api/movies/search?q=${encodeURIComponent(value)}&page=${page}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("search failed");
+        const data = await response.json();
+        setRemoteMovies(Array.isArray(data.movies) ? data.movies : []);
+        setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+        setSearchState("idle");
+      } catch (error) {
+        if (!controller.signal.aborted) setSearchState("error");
+      }
+    }, 350);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [query, page]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return movies.filter((movie) => {
+    const source = query.trim() && searchState !== "error" ? remoteMovies : movies;
+    return source.filter((movie: any) => {
       const matchesQuery = !normalized || `${movie.arabic} ${movie.title} ${movie.genre}`.toLowerCase().includes(normalized);
       const matchesCategory = activeCategory === "الكل" || movie.genre === activeCategory || (activeCategory === "أفلام" && movie.id % 2 === 1);
       return matchesQuery && matchesCategory;
@@ -75,7 +100,7 @@ export default function Home() {
           <div className="hero-art"><div className="hero-orbit orbit-one" /><div className="hero-orbit orbit-two" /><div className="hero-number">01</div><div className="hero-meta"><span>THE LAST HORIZON</span><small>مغامرة · خيال علمي · 2025</small></div></div>
         </section>
 
-        <section className="search-row"><div className="search-box"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث عن فيلم، مسلسل أو ممثل..." /><kbd>⌘ K</kbd></div><button className="filter-button"><SlidersHorizontal size={18} /> <span>تصفية</span></button></section>
+        <section className="search-row"><div className="search-box"><Search size={18} /><input aria-label="البحث عن فيلم أو مسلسل" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="ابحث عن فيلم، مسلسل أو ممثل..." /><kbd>⌘ K</kbd></div><button className="filter-button" aria-label="فتح التصفية"><SlidersHorizontal size={18} /> <span>تصفية</span></button></section>{query.trim() && suggestions.length > 0 && <div className="suggestions-row" aria-label="اقتراحات البحث">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setQuery(suggestion); setPage(1); }}>{suggestion}</button>)}</div>}{searchState === "loading" && <div className="search-status">جاري البحث...</div>}{searchState === "error" && <div className="search-error">تعذر الاتصال بالمصدر. <button onClick={() => { setSearchState("loading"); setPage((value) => value + 1); }}>إعادة المحاولة</button></div>}
 
         <div className="category-row">{categories.map((category) => <button key={category} className={activeCategory === category ? "category active" : "category"} onClick={() => setActiveCategory(category)}>{category}</button>)}</div>
 
@@ -83,7 +108,7 @@ export default function Home() {
 
         <section className="wide-promo"><div><span className="section-kicker">تجربة مشاهدة أفضل</span><h2>جودة عالية.<br /><span>بدون تعقيد.</span></h2><p>اختر الجودة التي تناسب اتصالك واستمتع بتجربة سلسة.</p><button className="outline-button">استكشف الجودات <ChevronLeft size={16} /></button></div><div className="quality-stack"><div className="quality-tile back">720p</div><div className="quality-tile mid">1080p</div><div className="quality-tile front"><strong>4K</strong><small>Ultra HD</small></div></div></section>
 
-        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">تصفح حسب ذوقك</span><h2>وصل حديثاً</h2></div><div className="arrows"><button aria-label="السابق"><ChevronRight size={18} /></button><button aria-label="التالي"><ChevronLeft size={18} /></button></div></div><div className="movie-grid">{filtered.slice(4).map((movie) => <MovieCard movie={movie} key={movie.id} onOpen={() => setSelected(movie)} />)}</div></section>
+        <section className="section-block"><div className="section-heading"><div><span className="section-kicker">تصفح حسب ذوقك</span><h2>وصل حديثاً</h2></div><div className="arrows"><button aria-label="السابق" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronRight size={18} /></button><button aria-label="التالي" onClick={() => setPage((value) => value + 1)}><ChevronLeft size={18} /></button></div></div><div className="movie-grid">{filtered.slice(4).map((movie) => <MovieCard movie={movie} key={movie.id} onOpen={() => setSelected(movie)} />)}</div></section>
 
         <section className="section-block"><div className="section-heading"><div><span className="section-kicker">اختيارات تناسبك</span><h2>ربما يعجبك أيضاً</h2></div><button className="text-link">تحديث <ChevronLeft size={16} /></button></div><div className="movie-grid">{movies.slice(2, 6).map((movie) => <MovieCard movie={movie} key={`recommend-${movie.id}`} onOpen={() => setSelected(movie)} />)}</div></section>
       </main>
