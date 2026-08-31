@@ -1,0 +1,31 @@
+# Project TODO
+
+- [x] Telegram Mini App shell with shared movie browsing experience
+- [x] Movie cards with thumbnail image, title, metadata, and actions
+- [x] Home sections for featured, trending, latest, and recommendations
+- [x] Search with suggestions, pagination, and empty/error states
+- [ ] Categories, channels, topics, and filtering screens
+- [ ] Movie details screen with synopsis, poster, cast metadata, and available qualities
+- [ ] Playback screen with safe external/player link handling
+- [x] Telegram Bot command and callback flow
+- [ ] Telegram Web App launch button and init-data validation
+- [ ] MovieFR API adapter with centralized headers and response decoding
+- [ ] Secure server-side secret and token handling
+- [ ] Caching, request throttling, timeout, and upstream error handling
+- [ ] Database models for users, favorites, history, and cached catalog data
+- [ ] Favorites and watch history synced between Bot and Mini App
+- [ ] Vitest coverage for signing, decoding, API adapter, and core UI behavior
+- [x] Responsive Arabic RTL visual design and accessibility review
+- [ ] README with local setup, Telegram BotFather setup, and deployment instructions
+- [ ] GitHub repository integration and push to selected repository
+- [ ] Add explicit Featured, Trending, Latest, and Recommendations home sections with distinct data/grouping
+- [ ] Implement search suggestions, pagination, and dedicated loading, empty, and error states
+- [ ] Perform and document an accessibility pass with focus-visible states, semantic landmarks, contrast, and keyboard behavior
+- [x] Use only ADMIN_ID, API_HASH, API_ID, and BOT_TOKEN as environment secrets
+- [ ] Move non-secret MovieFR API configuration into a committed project config file
+- [ ] Add Telegram client configuration and secret validation without exposing values
+- [ ] Update README and deployment instructions for the four-secret setup
+- [ ] Do not require any secret or user-provided API key beyond the four Telegram secrets
+- [ ] Keep all non-secret API constants and decoding configuration inside the bot project
+- [ ] Keep every non-secret integration setting, endpoint, algorithm, and bot message inside the repository
+- [x] Require only the four Telegram secrets and document that no fifth secret is needed

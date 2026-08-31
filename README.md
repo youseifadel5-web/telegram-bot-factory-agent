@@ -1,0 +1,56 @@
+# Movie VIP Telegram Bot + Mini App
+
+مشروع عربي RTL يوفّر تجربة Movie VIP عبر **Telegram Bot** و**Telegram Mini App**. يحتوي على بطاقات أفلام بصورة مصغّرة واسم الفيلم، البحث، التصنيفات، تفاصيل الفيلم، اختيار الجودة، وفتح المشاهدة من داخل الواجهة.
+
+## الأسرار المطلوبة
+
+يحتاج المشروع إلى أربعة أسرار فقط:
+
+| المتغير | الاستخدام |
+|---|---|
+| `ADMIN_ID` | رقم مستخدم Telegram المسموح له بأوامر الإدارة |
+| `API_ID` | Telegram API ID |
+| `API_HASH` | Telegram API hash |
+| `BOT_TOKEN` | توكن البوت من BotFather |
+
+إعدادات MovieFR، النطاقات، المسارات، الـheaders الثابتة، منطق `sign`، وبادئة فك الردود موجودة داخل `shared/movieConfig.ts` و`server/moviefr.ts`. لا يحتاج المشروع إلى `MOVIEFR_TOKEN` منفصل في الإعداد الافتراضي؛ يوجد override اختياري وقت التشغيل إذا تغيّر توكن المصدر.
+
+## التشغيل المحلي
+
+```bash
+pnpm install
+pnpm run check
+pnpm test
+pnpm dev
+```
+
+للتشغيل مع polling:
+
+```bash
+TELEGRAM_MODE=polling pnpm dev
+```
+
+للتشغيل كـWebhook، اجعل `MINI_APP_URL` رابط الواجهة العامة وأرسل تحديثات Telegram إلى:
+
+```text
+POST /api/telegram/webhook
+```
+
+## الواجهات الخلفية
+
+يقدّم الخادم المساران التاليان للـMini App:
+
+```text
+GET /api/movies/search?q=اسم&page=1
+GET /api/movies/:id
+```
+
+كل طلب MovieFR يبني `cur_time` بالميلي ثانية ويولّد `sign` باستخدام الصيغة المؤكدة في تقرير التحليل. يفك الخادم الردود التي تبدأ بـ`SHOK5119` ويحاول صيغ AES المرشحة مع fallback آمن للـJSON العادي.
+
+## Telegram Bot
+
+يدعم البوت `/start` و`/help` و`/app` و`/search`، كما يمكن إرسال اسم الفيلم مباشرة. يعرض نتائج البحث كبطاقات صور، مع زر للتفاصيل والجودات وزر لفتح الفيلم داخل Mini App. أمر `/admin` مقصور على `ADMIN_ID`.
+
+## ملاحظة استخدام مسؤولة
+
+استخدم المشروع فقط مع API ومحتوى تملك حق الوصول إليه وتوزيعه. لا تُضمّن الأسرار الأربعة في GitHub؛ أضفها إلى إعدادات البيئة في منصة التشغيل.
