@@ -29,6 +29,7 @@ const movies = [
 ];
 
 const categories = ["الكل", "أفلام", "مسلسلات", "أنمي", "وثائقي", "أكشن", "رعب", "كوميديا"];
+const castById: Record<number, string[]> = { 1: ["جيمس هاربر", "ليلى موران"], 2: ["آدم كول", "سارة نوفاك"], 3: ["رايلي ستون", "نورا كين"], 4: ["مريم حداد", "إياد منصور"], 5: ["كريم سالم", "هانا لو"], 6: ["نور عادل", "يوسف جابر"] };
 
 function MovieCard({ movie, onOpen }: { movie: (typeof movies)[number]; onOpen: () => void }) {
   return (
@@ -55,6 +56,7 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchState, setSearchState] = useState<"idle" | "loading" | "error">("idle");
   const [page, setPage] = useState(1);
+  const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
     const value = query.trim();
@@ -74,7 +76,7 @@ export default function Home() {
       }
     }, 350);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [query, page]);
+  }, [query, page, retryNonce]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -100,7 +102,7 @@ export default function Home() {
           <div className="hero-art"><div className="hero-orbit orbit-one" /><div className="hero-orbit orbit-two" /><div className="hero-number">01</div><div className="hero-meta"><span>THE LAST HORIZON</span><small>مغامرة · خيال علمي · 2025</small></div></div>
         </section>
 
-        <section className="search-row"><div className="search-box"><Search size={18} /><input aria-label="البحث عن فيلم أو مسلسل" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="ابحث عن فيلم، مسلسل أو ممثل..." /><kbd>⌘ K</kbd></div><button className="filter-button" aria-label="فتح التصفية"><SlidersHorizontal size={18} /> <span>تصفية</span></button></section>{query.trim() && suggestions.length > 0 && <div className="suggestions-row" aria-label="اقتراحات البحث">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setQuery(suggestion); setPage(1); }}>{suggestion}</button>)}</div>}{searchState === "loading" && <div className="search-status">جاري البحث...</div>}{searchState === "error" && <div className="search-error">تعذر الاتصال بالمصدر. <button onClick={() => { setSearchState("loading"); setPage((value) => value + 1); }}>إعادة المحاولة</button></div>}
+        <section className="search-row"><div className="search-box"><Search size={18} /><input aria-label="البحث عن فيلم أو مسلسل" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="ابحث عن فيلم، مسلسل أو ممثل..." /><kbd>⌘ K</kbd></div><button className="filter-button" aria-label="فتح التصفية"><SlidersHorizontal size={18} /> <span>تصفية</span></button></section>{query.trim() && suggestions.length > 0 && <div className="suggestions-row" aria-label="اقتراحات البحث">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setQuery(suggestion); setPage(1); }}>{suggestion}</button>)}</div>}{searchState === "loading" && <div className="search-status">جاري البحث...</div>}{searchState === "error" && <div className="search-error">تعذر الاتصال بالمصدر. <button onClick={() => { setSearchState("loading"); setRetryNonce((value) => value + 1); }}>إعادة المحاولة</button></div>}
 
         <div className="category-row">{categories.map((category) => <button key={category} className={activeCategory === category ? "category active" : "category"} onClick={() => setActiveCategory(category)}>{category}</button>)}</div>
 
@@ -115,7 +117,7 @@ export default function Home() {
 
       <nav className="bottom-nav"><button className="nav-item active"><HomeIcon size={19} /><span>الرئيسية</span></button><button className="nav-item"><Compass size={19} /><span>اكتشف</span></button><button className="nav-item center"><span><Play size={21} fill="currentColor" /></span><small>شاهد الآن</small></button><button className="nav-item"><Bookmark size={19} /><span>قائمتي</span></button><button className="nav-item"><Grid2X2 size={19} /><span>المزيد</span></button></nav>
 
-      {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="detail-sheet" onClick={(e) => e.stopPropagation()}><button className="close-button" onClick={() => setSelected(null)}><X size={19} /></button><div className="detail-poster" style={{ backgroundImage: `url(${selected.poster})` }}><div className="poster-shade" /><span className="detail-play"><Play size={20} fill="currentColor" /></span></div><div className="detail-copy"><span className="section-kicker">تفاصيل الفيلم</span><h2>{selected.arabic}</h2><p className="latin-title">{selected.title}</p><div className="detail-meta"><span><Star size={14} fill="currentColor" /> 2025</span><span><Clock3 size={14} /> 02:08</span><span>{selected.genre}</span></div><p>رحلة سينمائية ممتعة بتفاصيل بصرية غنية وقصة تأخذك إلى عالم مختلف.</p><div className="quality-options"><button className="selected-quality">4K <small>الأفضل</small></button><button>1080p</button><button>720p</button></div><button className="primary-button full" onClick={() => setSaved((items) => items.includes(selected.id) ? items.filter((id) => id !== selected.id) : [...items, selected.id])}>{saved.includes(selected.id) ? <Heart size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />} {saved.includes(selected.id) ? "تمت الإضافة لقائمتي" : "شاهد الآن"}</button></div></div></div>}
+      {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="detail-sheet" onClick={(e) => e.stopPropagation()}><button className="close-button" onClick={() => setSelected(null)}><X size={19} /></button><div className="detail-poster" style={{ backgroundImage: `url(${selected.poster})` }}><div className="poster-shade" /><span className="detail-play"><Play size={20} fill="currentColor" /></span></div><div className="detail-copy"><span className="section-kicker">تفاصيل الفيلم</span><h2>{selected.arabic}</h2><p className="latin-title">{selected.title}</p><div className="detail-meta"><span><Star size={14} fill="currentColor" /> 2025</span><span><Clock3 size={14} /> 02:08</span><span>{selected.genre}</span></div><p>رحلة سينمائية ممتعة بتفاصيل بصرية غنية وقصة تأخذك إلى عالم مختلف.</p><div className="cast-line"><strong>طاقم العمل</strong><span>{(castById[selected.id] ?? []).join(" · ")}</span></div><div className="quality-options"><button className="selected-quality">4K <small>الأفضل</small></button><button>1080p</button><button>720p</button></div><button className="primary-button full" onClick={() => setSaved((items) => items.includes(selected.id) ? items.filter((id) => id !== selected.id) : [...items, selected.id])}>{saved.includes(selected.id) ? <Heart size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />} {saved.includes(selected.id) ? "تمت الإضافة لقائمتي" : "شاهد الآن"}</button></div></div></div>}
     </div>
   );
 }
