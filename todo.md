@@ -10,9 +10,9 @@
 - [x] Telegram Bot command and callback flow
 - [x] Telegram Web App launch button and init-data validation
 - [ ] MovieFR API adapter with centralized headers and response decoding
-- [ ] Secure server-side secret and token handling
+- [x] Secure server-side secret and token handling
 - [ ] Caching, request throttling, timeout, and upstream error handling
-- [ ] Database models for users, favorites, history, and cached catalog data
+- [x] Database models for users, favorites, history, and cached catalog data
 - [ ] Favorites and watch history synced between Bot and Mini App
 - [x] Vitest coverage for signing, decoding, API adapter, and core UI behavior
 - [x] Responsive Arabic RTL visual design and accessibility review
@@ -22,12 +22,12 @@
 - [x] Implement search suggestions, pagination, and dedicated loading, empty, and error states
 - [x] Perform and document an accessibility pass with focus-visible states, semantic landmarks, contrast, and keyboard behavior
 - [x] Use only ADMIN_ID, API_HASH, API_ID, and BOT_TOKEN as environment secrets
-- [ ] Move non-secret MovieFR API configuration into a committed project config file
-- [ ] Add Telegram client configuration and secret validation without exposing values
+- [x] Move non-secret MovieFR API configuration into a committed project config file
+- [x] Add Telegram client configuration and secret validation without exposing values
 - [x] Update README and deployment instructions for the four-secret setup
-- [ ] Do not require any secret or user-provided API key beyond the four Telegram secrets
-- [ ] Keep all non-secret API constants and decoding configuration inside the bot project
-- [ ] Keep every non-secret integration setting, endpoint, algorithm, and bot message inside the repository
+- [x] Do not require any secret or user-provided API key beyond the four Telegram secrets
+- [x] Keep all non-secret API constants and decoding configuration inside the bot project
+- [x] Keep every non-secret integration setting, endpoint, algorithm, and bot message inside the repository
 - [x] Require only the four Telegram secrets and document that no fifth secret is needed
 - [ ] Replace mock slice grouping with distinct featured, trending, latest, and recommendations data collections
 - [x] Add cast metadata rendering to the movie details sheet

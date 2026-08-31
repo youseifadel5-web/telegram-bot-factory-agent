@@ -50,7 +50,7 @@ export function decryptMovieFrResponse(raw: string): MovieFrResult {
 function getApiToken() {
   // Kept as a runtime override for deployments where the upstream token rotates.
   // The app continues to work with the configured public headers when the upstream allows it.
-  return process.env.MOVIEFR_TOKEN ?? movieConfig.upstreamToken;
+  return process.env.MOVIEFR_TOKEN ?? "";
 }
 
 export async function movieFrRequest(endpoint: string, body: Record<string, string | number> = {}) {

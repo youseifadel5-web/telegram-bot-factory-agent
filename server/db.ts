@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, favorites, watchHistory, catalogCache } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,47 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function getCatalogCache(cacheKey: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(catalogCache).where(eq(catalogCache.cacheKey, cacheKey)).limit(1);
+  const row = result[0];
+  return row && row.expiresAt.getTime() > Date.now() ? JSON.parse(row.payload) : undefined;
+}
+
+export async function putCatalogCache(cacheKey: string, payload: unknown, ttlMs = 120_000) {
+  const db = await getDb();
+  if (!db) return;
+  const serialized = JSON.stringify(payload);
+  const expiresAt = new Date(Date.now() + ttlMs);
+  await db.insert(catalogCache).values({ cacheKey, payload: serialized, expiresAt }).onDuplicateKeyUpdate({ set: { payload: serialized, expiresAt, updatedAt: new Date() } });
+}
+
+export async function listFavorites(userId: number) {
+  const db = await getDb();
+  return db ? db.select().from(favorites).where(eq(favorites.userId, userId)) : [];
+}
+
+export async function toggleFavorite(userId: number, movie: { id: string; title: string; poster?: string }) {
+  const db = await getDb();
+  if (!db) return { saved: false };
+  const existing = await db.select().from(favorites).where(eq(favorites.userId, userId));
+  const match = existing.find((item) => item.movieId === movie.id);
+  if (match) { await db.delete(favorites).where(eq(favorites.id, match.id)); return { saved: false }; }
+  await db.insert(favorites).values({ userId, movieId: movie.id, movieTitle: movie.title, posterUrl: movie.poster ?? null });
+  return { saved: true };
+}
+
+export async function listWatchHistory(userId: number) {
+  const db = await getDb();
+  return db ? db.select().from(watchHistory).where(eq(watchHistory.userId, userId)) : [];
+}
+
+export async function upsertWatchHistory(userId: number, movie: { id: string; title: string }, progressSeconds = 0) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(watchHistory).where(eq(watchHistory.userId, userId));
+  const match = existing.find((item) => item.movieId === movie.id);
+  if (match) await db.update(watchHistory).set({ movieTitle: movie.title, progressSeconds, watchedAt: new Date() }).where(eq(watchHistory.id, match.id));
+  else await db.insert(watchHistory).values({ userId, movieId: movie.id, movieTitle: movie.title, progressSeconds });
+}

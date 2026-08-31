@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, uniqueIndex } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -25,4 +25,33 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+export const favorites = mysqlTable("favorites", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  movieId: varchar("movieId", { length: 128 }).notNull(),
+  movieTitle: varchar("movieTitle", { length: 255 }).notNull(),
+  posterUrl: text("posterUrl"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({ userMovie: uniqueIndex("favorites_user_movie").on(table.userId, table.movieId) }));
+
+export const watchHistory = mysqlTable("watch_history", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  movieId: varchar("movieId", { length: 128 }).notNull(),
+  movieTitle: varchar("movieTitle", { length: 255 }).notNull(),
+  progressSeconds: int("progressSeconds").default(0).notNull(),
+  watchedAt: timestamp("watchedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({ userMovie: uniqueIndex("history_user_movie").on(table.userId, table.movieId) }));
+
+export type Favorite = typeof favorites.$inferSelect;
+export type WatchHistory = typeof watchHistory.$inferSelect;
+
+export const catalogCache = mysqlTable("catalog_cache", {
+  id: int("id").autoincrement().primaryKey(),
+  cacheKey: varchar("cacheKey", { length: 255 }).notNull().unique(),
+  payload: text("payload").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CatalogCache = typeof catalogCache.$inferSelect;

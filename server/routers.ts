@@ -1,7 +1,9 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { z } from "zod";
+import { listFavorites, listWatchHistory, toggleFavorite, upsertWatchHistory } from "./db";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -17,12 +19,12 @@ export const appRouter = router({
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  library: router({
+    favorites: protectedProcedure.query(({ ctx }) => listFavorites(ctx.user.id)),
+    toggleFavorite: protectedProcedure.input(z.object({ id: z.string(), title: z.string(), poster: z.string().optional() })).mutation(({ ctx, input }) => toggleFavorite(ctx.user.id, input)),
+    history: protectedProcedure.query(({ ctx }) => listWatchHistory(ctx.user.id)),
+    recordHistory: protectedProcedure.input(z.object({ id: z.string(), title: z.string(), progressSeconds: z.number().int().min(0).default(0) })).mutation(({ ctx, input }) => upsertWatchHistory(ctx.user.id, input, input.progressSeconds)),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

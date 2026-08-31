@@ -5,6 +5,16 @@ import { movieFrRequest, normalizeMovies } from "./moviefr";
 const miniAppUrl = process.env.MINI_APP_URL ?? "";
 let bot: Bot | null = null;
 
+export function validateTelegramConfig(env: NodeJS.ProcessEnv = process.env) {
+  const missing = ["ADMIN_ID", "API_ID", "API_HASH", "BOT_TOKEN"].filter((key) => !env[key]?.trim());
+  const malformed = [] as string[];
+  if (env.ADMIN_ID && !/^\\d+$/.test(env.ADMIN_ID)) malformed.push("ADMIN_ID");
+  if (env.API_ID && !/^\\d+$/.test(env.API_ID)) malformed.push("API_ID");
+  if (env.API_HASH && env.API_HASH.length < 16) malformed.push("API_HASH");
+  if (env.BOT_TOKEN && !/^\\d+:[A-Za-z0-9_-]{20,}$/.test(env.BOT_TOKEN)) malformed.push("BOT_TOKEN");
+  return { valid: missing.length === 0 && malformed.length === 0, missing, malformed };
+}
+
 function isAdmin(userId: number) {
   return String(userId) === String(process.env.ADMIN_ID ?? "");
 }
@@ -22,8 +32,12 @@ function movieKeyboard(id: string) {
 }
 
 export function createTelegramBot() {
-  const token = process.env.BOT_TOKEN;
-  if (!token) return null;
+  const config = validateTelegramConfig();
+  if (!config.valid) {
+    console.warn(`[Telegram] Bot disabled; configuration issues: ${[...config.missing, ...config.malformed].join(", ") || "unknown"}`);
+    return null;
+  }
+  const token = process.env.BOT_TOKEN!;
   bot = new Bot(token);
   bot.command("start", async (ctx) => {
     await ctx.reply("أهلاً بك في Movie VIP\nابحث عن أي فيلم أو مسلسل، وسأعرض لك الصورة والتفاصيل والجودات المتاحة.", { reply_markup: appKeyboard() });

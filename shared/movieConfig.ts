@@ -6,8 +6,6 @@ export const movieConfig = {
   version: "30003",
   channelCode: "moviefr_1005",
   userAgent: "okhttp/4.12.0",
-  // Upstream token supplied in the authorized MovieFR API report. Rotate here if the upstream changes it.
-  upstreamToken: "gAAAAABqlA22u4cXwL3INxXbj0RXBFIlPyNWvCs0qdcg7HY3QIP73TtU6reGoLGO64OfxJkaEyVDJa8D4u35CrP8M3xAeKddNiF7QtWdsC4IcRLiFMNtnqQaiklaBqnrYtW0bDJLtQI3O7xy9Rd2HInyK--4eQ5G3XtzqLQJSZuI_r3yuh_5NG6UdcZ_wZY657MKIQfWBHQ48HdEa43piNlHHMufvIF6mXPqCZHyNjeRCU0YScreU4LgMNEYbAyUkVgROrNxL8eu",
   responsePrefix: "SHOK5119",
   endpoints: {
     info: "/api/vod/info_new",
