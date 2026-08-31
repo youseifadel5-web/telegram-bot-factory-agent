@@ -1,6 +1,7 @@
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import { movieConfig } from "@shared/movieConfig";
 import { movieFrRequest, normalizeMovies } from "./moviefr";
+import { getUserByOpenId, listFavorites, listWatchHistory, upsertUser } from "./db";
 
 const miniAppUrl = process.env.MINI_APP_URL ?? "";
 let bot: Bot | null = null;
@@ -40,10 +41,22 @@ export function createTelegramBot() {
   const token = process.env.BOT_TOKEN!;
   bot = new Bot(token);
   bot.command("start", async (ctx) => {
-    await ctx.reply("أهلاً بك في Movie VIP\nابحث عن أي فيلم أو مسلسل، وسأعرض لك الصورة والتفاصيل والجودات المتاحة.", { reply_markup: appKeyboard() });
+    await ctx.reply(`أهلاً بك في ${movieConfig.botDisplayName}\nابحث عن أي فيلم أو مسلسل، وسأعرض لك الصورة والتفاصيل والجودات المتاحة.`, { reply_markup: appKeyboard() });
   });
   bot.command("help", (ctx) => ctx.reply("اكتب اسم الفيلم مباشرة، أو استخدم /search ثم كلمة البحث.\nاستخدم /app لفتح الواجهة الكاملة."));
   bot.command("app", (ctx) => ctx.reply("افتح Movie VIP من هنا:", { reply_markup: appKeyboard() }));
+  bot.command("favorites", async (ctx) => {
+    if (!ctx.from) return;
+    const user = await ensureTelegramUser(ctx.from.id, ctx.from.first_name);
+    const items = user ? await listFavorites(user.id) : [];
+    await ctx.reply(items.length ? `قائمتك (${items.length}):\\n${items.map((item) => `• ${item.movieTitle}`).join("\\n")}` : "قائمتك فارغة حالياً. أضف أفلاماً من التفاصيل داخل التطبيق.", { reply_markup: appKeyboard() });
+  });
+  bot.command("history", async (ctx) => {
+    if (!ctx.from) return;
+    const user = await ensureTelegramUser(ctx.from.id, ctx.from.first_name);
+    const items = user ? await listWatchHistory(user.id) : [];
+    await ctx.reply(items.length ? `سجل المشاهدة (${items.length}):\\n${items.map((item) => `• ${item.movieTitle}`).join("\\n")}` : "لا يوجد سجل مشاهدة بعد.", { reply_markup: appKeyboard() });
+  });
   bot.command("admin", async (ctx) => {
     if (!ctx.from || !isAdmin(ctx.from.id)) return ctx.reply("هذا الأمر مخصص للإدارة فقط.");
     await ctx.reply(`لوحة الإدارة جاهزة. المستخدمون: ${ctx.chat.id}`);
@@ -73,6 +86,12 @@ export function createTelegramBot() {
     }
   });
   return bot;
+}
+
+async function ensureTelegramUser(telegramId: number, name?: string) {
+  const openId = `telegram:${telegramId}`;
+  await upsertUser({ openId, name: name ?? null, loginMethod: "telegram", lastSignedIn: new Date() });
+  return getUserByOpenId(openId);
 }
 
 const botSearchBuckets = new Map<number, { startedAt: number; count: number }>();

@@ -1,0 +1,44 @@
+name: يوسف بوت
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  validate-and-run:
+    name: يوسف بوت — فحص وتشغيل
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      ADMIN_ID: ${{ secrets.ADMIN_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+      API_ID: ${{ secrets.API_ID }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      NODE_ENV: production
+      TELEGRAM_MODE: polling
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate configuration without exposing secrets
+        run: |
+          test -n "$ADMIN_ID"
+          test -n "$API_HASH"
+          test -n "$API_ID"
+          test -n "$BOT_TOKEN"
+          echo "Telegram secret presence validated; values are not printed."
+      - name: Typecheck and tests
+        run: pnpm run check && pnpm test
+      - name: Build
+        run: pnpm run build
+      - name: Run يوسف بوت
+        run: pnpm run start

@@ -4,16 +4,16 @@
 - [x] Movie cards with thumbnail image, title, metadata, and actions
 - [x] Home sections for featured, trending, latest, and recommendations
 - [x] Search with suggestions, pagination, and empty/error states
-- [ ] Categories, channels, topics, and filtering screens
+- [x] Categories, channels, topics, and filtering screens
 - [x] Movie details screen with synopsis, poster, cast metadata, and available qualities
 - [x] Playback screen with safe external/player link handling
 - [x] Telegram Bot command and callback flow
 - [x] Telegram Web App launch button and init-data validation
-- [ ] MovieFR API adapter with centralized headers and response decoding
+- [x] MovieFR API adapter with centralized headers and response decoding
 - [x] Secure server-side secret and token handling
 - [x] Caching, request throttling, timeout, and upstream error handling
 - [x] Database models for users, favorites, history, and cached catalog data
-- [ ] Favorites and watch history synced between Bot and Mini App
+- [x] Favorites and watch history synced between Bot and Mini App
 - [x] Vitest coverage for signing, decoding, API adapter, and core UI behavior
 - [x] Responsive Arabic RTL visual design and accessibility review
 - [x] README with local setup, Telegram BotFather setup, and deployment instructions
@@ -33,3 +33,16 @@
 - [x] Add cast metadata rendering to the movie details sheet
 - [x] Add search pagination state and a visible retry/error state
 - [x] Document the accessibility review and keyboard behavior checks
+- [ ] Diagnose reported complete failure to run the Telegram Bot and Mini App
+- [ ] Inspect server, browser, and network logs for startup/runtime errors
+- [ ] Verify four-secret configuration and Telegram startup behavior without leaking values
+- [ ] Verify MovieFR endpoints, response decoding, and play-link routes against the supplied API report
+- [ ] Re-test Bot commands, Mini App launch, search, details, favorites, history, and playback end to end
+- [ ] Document the root cause and corrected setup steps
+- [ ] Start Telegram Bot automatically after the four secrets are configured without requiring a fifth environment variable or UI action button
+- [ ] Make local and production startup modes deterministic and document the automatic behavior
+- [ ] Verify bot startup logs and Mini App health after secrets are configured
+- [ ] Add a visible GitHub Actions workflow named Yusuf Bot with workflow_dispatch / Run workflow support
+- [ ] Map ADMIN_ID, API_HASH, API_ID, and BOT_TOKEN from GitHub Actions secrets without printing values
+- [ ] Set the bot display name to يوسف بوت in project configuration and setup documentation
+- [ ] Verify the workflow YAML and repository Actions visibility after pushing it

@@ -1,4 +1,6 @@
 export const movieConfig = {
+  botDisplayName: "يوسف بوت",
+  appDisplayName: "Movie VIP",
   apiBaseUrl: "https://freecinefr.t62nds.com",
   streamBaseUrl: "https://moviefr.v7z5v0.com",
   appId: "moviefr",
