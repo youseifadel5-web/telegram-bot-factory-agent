@@ -1,0 +1,6 @@
+{
+  "name": "YouseifPlayer",
+  "description": "Premium AMOLED IPTV video player with live channel streaming, M3U playlist management, and advanced stream diagnostics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
