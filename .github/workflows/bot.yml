@@ -69,4 +69,15 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           FFMPEG_PATH: ffmpeg
-        run: python main.py
+        # The bot is a long-running service; CI only needs a startup smoke test.
+        # A timeout is expected after successful initialization and prevents a
+        # workflow run from occupying a runner for the whole service lifetime.
+        run: |
+          set +e
+          timeout --signal=TERM 45s python main.py
+          code=$?
+          if [ "$code" -eq 124 ] || [ "$code" -eq 143 ]; then
+            echo "Bot startup smoke test completed (timeout is expected)."
+            exit 0
+          fi
+          exit "$code"
