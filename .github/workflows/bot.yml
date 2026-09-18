@@ -54,6 +54,8 @@ jobs:
           AI_ENABLED: ${{ secrets.AI_ENABLED }}
           AI_MAX_RETRIES: ${{ secrets.AI_MAX_RETRIES }}
           AI_MODE: ${{ secrets.AI_MODE }}
+          AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
+          AI_MODEL: ${{ secrets.AI_MODEL }}
           AI_TIMEOUT: ${{ secrets.AI_TIMEOUT }}
           API_HASH: ${{ secrets.API_HASH }}
           API_ID: ${{ secrets.API_ID }}
@@ -70,6 +72,13 @@ jobs:
           PYROGRAM_FILE_LIMIT: ${{ secrets.PYROGRAM_FILE_LIMIT }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          HLS_TIMEOUT: ${{ secrets.HLS_TIMEOUT }}
+          HLS_RETRIES: ${{ secrets.HLS_RETRIES }}
+          OSCAR_TIMEOUT: ${{ secrets.OSCAR_TIMEOUT }}
+          OSCAR_RETRIES: ${{ secrets.OSCAR_RETRIES }}
+          OSCAR_CACHE_TTL: ${{ secrets.OSCAR_CACHE_TTL }}
+          TELEGRAM_API_URL: ${{ secrets.TELEGRAM_API_URL }}
           FFMPEG_PATH: ffmpeg
           # Allow the radio plus up to three additional broadcasts in the
           # same bot process. This is intentionally explicit in CI.
