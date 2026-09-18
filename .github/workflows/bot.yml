@@ -15,7 +15,9 @@ concurrency:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    # Keep one bot instance alive for the scheduled window. The next scheduled
+    # run uses concurrency.cancel-in-progress to stop this instance cleanly.
+    timeout-minutes: 340
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,7 +47,7 @@ jobs:
       - name: Run unit tests
         run: python -m pytest -q
 
-      - name: Start stream bot
+      - name: Start stream bot for the service window
         env:
           ADMIN_ID: ${{ secrets.ADMIN_ID }}
           ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
@@ -69,15 +71,14 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           FFMPEG_PATH: ffmpeg
-        # The bot is a long-running service; CI only needs a startup smoke test.
-        # A timeout is expected after successful initialization and prevents a
-        # workflow run from occupying a runner for the whole service lifetime.
+        # GitHub-hosted runners are temporary, so run the bot for one scheduled
+        # window instead of killing it after the startup notification.
         run: |
           set +e
-          timeout --signal=TERM 45s ./start.sh
+          timeout --signal=TERM --kill-after=30s 330m ./start.sh
           code=$?
           if [ "$code" -eq 124 ] || [ "$code" -eq 143 ]; then
-            echo "Bot startup smoke test completed (timeout is expected)."
+            echo "Bot service window ended normally (timeout is expected)."
             exit 0
           fi
           exit "$code"
