@@ -205,11 +205,21 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # فيديو فقط إن كان المصدر فيديو — صوت فقط لملفات/راديو صوتية (توفير إنترنت)
                 try:
                     from services.source_probe import looks_like_video, detect_media_kind
+                    source_lower = (source or "").lower()
                     kind = context.user_data.get("media_kind") or detect_media_kind(source or "")
                     probe = context.user_data.get("probe_result") or {}
-                    if probe.get("has_video") is False and probe.get("has_audio"):
+                    # Radio/Quran endpoints often return an HTML/player page to
+                    # ffprobe, which can falsely look like a video source. They
+                    # are audio stations by contract and must use the audio
+                    # pipeline (black video canvas is added only for Telegram
+                    # Live compatibility).
+                    forced_audio = any(token in source_lower for token in (
+                        "qurango", "mp3quran", "/radio/", "radio.",
+                        ".mp3", ".aac", ".ogg", ".m4a",
+                    )) or kind == "audio"
+                    if forced_audio:
                         use_video = False
-                    elif kind == "audio":
+                    elif probe.get("has_video") is False and probe.get("has_audio"):
                         use_video = False
                     else:
                         use_video = bool(context.user_data.get("_probe_has_video")) or looks_like_video(source or "") or bool(probe.get("has_video"))
@@ -353,5 +363,4 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _safe_update_reply(update, f"❌ خطأ: {e}")
         clear_workflow_state(context.user_data)
     return ConversationHandler.END
-
 

@@ -115,6 +115,10 @@ async def play_lib_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"اضغط لإنشاء البث مباشرة."
         )
         context.user_data["last_lib_item"] = {"title": name, "url": url, "type": cat_type}
+        if cat_type in ("radio_quran", "music_radios"):
+            context.user_data["media_kind"] = "audio"
+        else:
+            context.user_data.pop("media_kind", None)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🚀 تشغيل البث الآن", callback_data="stream_from_url")],
             [InlineKeyboardButton("⭐ إضافة للمفضلة", callback_data="fav_add_last")],
