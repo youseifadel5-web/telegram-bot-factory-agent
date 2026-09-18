@@ -1,0 +1,15 @@
+{
+  "stations": [
+    {
+      "id": "quran_makkah",
+      "name": "إذاعة القرآن الكريم - مكة",
+      "rtmp_url": "",
+      "with_video": false,
+      "sources": [
+        "https://stream.example.com/quran-primary.mp3",
+        "https://backup1.example.com/quran-backup1.mp3",
+        "https://backup2.example.com/quran-backup2.mp3"
+      ]
+    }
+  ]
+}

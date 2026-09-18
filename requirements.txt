@@ -1,4 +1,12 @@
-pyTelegramBotAPI>=4.15,<5
-python-telegram-bot==20.7
-httpx==0.25.2
-requests>=2.31,<3
+# Core (required)
+python-telegram-bot==21.6
+python-dotenv==1.0.1
+aiohttp==3.14.3
+aiosqlite==0.20.0
+psutil==6.1.0
+boto3==1.35.36
+cryptography>=42.0.0
+
+# Optional but recommended
+pyrogram==2.0.106
+tgcrypto==1.2.5

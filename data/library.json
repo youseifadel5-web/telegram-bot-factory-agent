@@ -1,0 +1,93 @@
+{
+  "categories": [
+    {
+      "name": "🟢 شيوخ العصر الحديث",
+      "type": "modern",
+      "items": [
+        { "name": "أحمد بن علي العجمي", "url": "https://qurango.net/radio/ahmad_alajmy" },
+        { "name": "أبو بكر الشاطري", "url": "https://stream.manhajonline.com/quran/stream" },
+        { "name": "فارس عباد", "url": "https://qurango.net/radio/fares_abbad" },
+        { "name": "ماهر المعيقلي", "url": "https://qurango.net/radio/maher_al_meaqli" },
+        { "name": "مشاري العفاسي", "url": "https://qurango.net/radio/mishary_alafasi" },
+        { "name": "ياسر الدوسري", "url": "https://qurango.net/radio/yasser_aldosari" },
+        { "name": "ناصر القطامي", "url": "https://backup.qurango.net/radio/nasser_alqatami.mp3" },
+        { "name": "خالد الجليل", "url": "https://qurango.net/radio/khalid_aljileel" },
+        { "name": "بندر بليلة", "url": "https://qurango.net/radio/bandar_balilah" },
+        { "name": "سعد الغامدي", "url": "https://qurango.net/radio/saad_alghamdi" },
+        { "name": "سعود الشريم", "url": "https://qurango.net/radio/saud_alshuraim" },
+        { "name": "صلاح بو خاطر", "url": "https://qurango.net/radio/slaah_bukhatir" },
+        { "name": "عمر القزابري", "url": "https://qurango.net/radio/omar_alqazabri" },
+        { "name": "يحيى حوا", "url": "https://qurango.net/radio/yahya_hawwa" },
+        { "name": "هيثم الجدعاني", "url": "https://qurango.net/radio/hitham_aljadani" },
+        { "name": "وليد النائحي", "url": "https://qurango.net/radio/waleed_alnaehi" }
+      ]
+    },
+    {
+      "name": "🟤 شيوخ العصر القديم",
+      "type": "classic",
+      "items": [
+        { "name": "عبدالباسط عبدالصمد - مجود", "url": "https://qurango.net/radio/abdulbasit_abdulsamad_mojawwad" },
+        { "name": "عبدالباسط عبدالصمد - ورش", "url": "https://qurango.net/radio/abdulbasit_abdulsamad_warsh" },
+        { "name": "محمد المنشاوي", "url": "https://qurango.net/radio/translation_quran_urdu_minsh" },
+        { "name": "محمد الطبلاوي", "url": "https://qurango.net/radio/mohammad_altablaway" },
+        { "name": "محمد أيوب", "url": "https://qurango.net/radio/ayyoub2" },
+        { "name": "علي جابر", "url": "https://qurango.net/radio/ali_jaber" },
+        { "name": "الدكالي محمد العالم", "url": "https://qurango.net/radio/addokali_mohammad_alalim" },
+        { "name": "العيون الكوشي", "url": "https://qurango.net/radio/aloyoon_alkoshi" }
+      ]
+    },
+    {
+      "name": "📚 إذاعات القرآن الكريم",
+      "type": "radio_quran",
+      "items": [
+        { "name": "إذاعة القرآن الكريم من السعودية", "url": "https://stream.radiojar.com/0tpy1h0kxtzuv" },
+        { "name": "إذاعة القرآن الكريم من القاهرة", "url": "https://stream.radiojar.com/8s5u5tpdtwzu" },
+        { "name": "إذاعة الحرم المكي", "url": "http://r7.tarat.com:8004/stream?type=http&nocache=114" },
+        { "name": "إذاعة صور من حياة الصحابة", "url": "https://qurango.net/radio/sahabah" },
+        { "name": "تراتيل قصيرة مميزة", "url": "https://qurango.net/radio/tarateel" },
+        { "name": "مختصر التفسير", "url": "https://qurango.net/radio/mukhtasartafsir" },
+        { "name": "تفسير القرآن الكريم", "url": "https://qurango.net/radio/tafseer" }
+      ]
+    },
+    {
+      "name": "🤲 الرقية الشرعية والأذكار",
+      "type": "islamic",
+      "items": [
+        { "name": "الرقية الشرعية", "url": "https://qurango.net/radio/roqiah" },
+        { "name": "فتاوى الشيخ ابن باز", "url": "https://qurango.net/radio/alaikhtiarat_alfiqhayh_bin_baz" },
+        { "name": "الفتاوى", "url": "https://qurango.net/radio/fatwa" },
+        { "name": "السيرة النبوية", "url": "https://qurango.net/radio/fi_zilal_alsiyra" },
+        { "name": "أذكار الصباح", "url": "https://qurango.net/radio/athkar_sabah" },
+        { "name": "أذكار المساء", "url": "https://qurango.net/radio/athkar_masa" }
+      ]
+    },
+    {
+      "name": "🎤 المطربين",
+      "type": "music_artists",
+      "items": [
+        { "name": "🎤 عمرو دياب", "url": "https://stream-40.zeno.fm/xa4yhh4k838uv?zs=gojgaFRaRrK1wgGIwdv6xA" },
+        { "name": "🎤 إليسا", "url": "https://stream.zeno.fm/v7n499m8ckhvv" }
+      ]
+    },
+    {
+      "name": "📻 المحطات الموسيقية",
+      "type": "music_radios",
+      "items": [
+        { "name": "📻 Nogoum FM", "url": "https://stream-159.zeno.fm/qb1zvsykm98uv" },
+        { "name": "📻 Radio 9090", "url": "https://9090streaming.mobtada.com/9090FMEGYPT" },
+        { "name": "📻 NRJ Egypt", "url": "http://nrjstreaming.ahmed-melege.com/nrjegypt" },
+        { "name": "📻 87.8 Mix FM", "url": "https://stream-29.zeno.fm/na3vpvn10qruv" },
+        { "name": "📻 Arab Mix FM", "url": "https://stream.zeno.fm/na3vpvn10qruv" },
+        { "name": "📻 Arab Mix Drama", "url": "https://stream.zeno.fm/egynebf171zuv.acc" },
+        { "name": "📻 On Sport FM", "url": "https://carina.streamerr.co:2020/stream/OnSportFM" },
+        { "name": "📻 Tes3enat FM", "url": "http://178.33.135.244:20095/" },
+        { "name": "📻 Diab FM", "url": "http://stream-36.zeno.fm/rf64mx02qa0uv" },
+        { "name": "📻 Elissa FM", "url": "https://stream.zeno.fm/v7n499m8ckhvv" },
+        { "name": "📻 Radio Hits 88.2 Cairo", "url": "https://radiohits882.radioca.st/" },
+        { "name": "📻 SHA3BY FM", "url": "https://radio95.radioca.st/" },
+        { "name": "📻 Arab Mix 256", "url": "https://stream.zeno.fm/wvqgc9kb1d0uv" },
+        { "name": "📻 Misrin Street", "url": "https://stream.zeno.fm/djqjrjhxsrgtv" }
+      ]
+    }
+  ]
+}

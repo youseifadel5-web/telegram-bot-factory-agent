@@ -1,60 +1,198 @@
-# Unified Telegram Bot
+# Youseif Streaming Bot (KataBump)
 
-## الهيكل
-- `bot.py` هو البوت الأساسي والـpolling الوحيد (Token واحد).
-- `Add bot/` هو المكان الوحيد لإضافة البوتات الفرعية.
-- كل ملف `.py` مباشر داخل `Add bot/` يُحمَّل تلقائيًا كبوت فرعي. اسم الملف لا يهم.
-- لا تحتاج لإنشاء مجلد أو ملف إعداد إضافي للبوت الفرعي.
-- بعد وضع الملف: من لوحة الأدمن → **إدارة البوتات** → **إعادة تحميل البوتات** (أو أعد تشغيل الخدمة).
+بوت تيليجرام متقدم للبث المباشر (RTMP + FFmpeg)، السينما، المسلسلات، IPTV، رفع الملفات إلى Cloudflare R2، الأرشفة، والمكتبة الصوتية.
 
-## البوابة
-- `🎬 بوت سينماء`: يعرض كل البوتات **المفعّلة** الموجودة في `Add bot/`.
-- `🔍 بحث`: يبحث في كل البوتات المفعّلة التي توفر hook باسم `search`.
-- `👑 لوحة التحكم`: تظهر للـ`ADMIN_ID` فقط في البوابة الخارجية، وتشمل:
-  - إحصائيات / كاش / باسورد الكبار / رسالة جماعية (نظام يوسف)
-  - **إدارة البوتات**: تفعيل/إيقاف أي بوت مكتشف + إعادة تحميل قائمة `Add bot/`
+**الإصدار:** BOT_ONLY (محسّن)
 
-## طريقة إضافة بوت جديد
-1. أنشئ ملفًا مثل `Add bot/MyBot.py` (بدون polling).
-2. وفّر على الأقل:
-   ```python
-   PLUGIN_ID = "mybot"
-   PLUGIN_NAME = "بوت تجريبي"
-   PLUGIN_BUTTON = "🤖 بوت تجريبي"
+---
 
-   def open_plugin(call, context):
-       # افتح واجهتك أو أرجع مسارًا معروفًا للمضيف
-       # أمثلة جاهزة:
-       # return "youseif"              # واجهة يوسف فيلم
-       # return "cinema:hub_nova"      # واجهة سينما نوفا
-       return "cinema:hub_orion"
+## المميزات الرئيسية
 
-   def handle_callback(call, context):
-       # اختياري — إن كان البوت يعتمد على cinema_core
-       return bool(context["cinema"].handle_callbacks(call))
+- 📡 **بث مباشر** عبر RTMP (يوتيوب، تليجرام لايف، فيسبوك...) مع دعم HLS / HTTP / Google Drive
+- 🎬 **سينما ومسلسلات** عبر مصادر متعددة (Oscar وغيرها)
+- 📺 **IPTV** مع قوائم واستيراد
+- 📂 **رفع وإدارة ملفات** إلى Cloudflare R2
+- 🗄️ **أرشفة** تلقائية أو يدوية للفيديوهات
+- 📖 **مكتبة** قرآن وموسيقى
+- 🛡️ **حماية SSRF** على الروابط المدخلة من المستخدم
+- 🔐 **تشفير مفاتيح RTMP** (Fernet)
+- 🤖 دعم اختياري لـ AI (OpenAI / Gemini / Grok / DeepSeek...)
+- 📊 لوحة أدمن متقدمة + مراقبة النظام
 
-   def handle_message(update, context):
-       return False
+---
 
-   def search(query, context):
-       # اختياري — للبحث الموحد
-       return {"movie": [], "series": []}
-   ```
-3. من لوحة الأدمن اضغط **إعادة تحميل البوتات** ثم فعّله إن لزم.
+## المتطلبات
 
-> مهم: ملف البوت الفرعي **لا يجب** أن يبدأ `polling` أو `run_polling()` بنفسه.
+- Python 3.10+
+- FFmpeg مثبت على النظام (`ffmpeg` في PATH)
+- حساب Telegram Bot + Bot Token
+- (اختياري) Cloudflare R2
+- (اختياري) Local Telegram Bot API Server لرفع ملفات كبيرة
 
-## الأنظمة المدمجة
-- **سينما نوفا / أوريون بلس**: عبر `cinema_core.py` + ملفات الإضافة في `Add bot/`.
-- **Youseif Films**: عبر `youseif_core.py` + `Add bot/Youseif_Films.py` (بدون polling مستقل).
+### تثبيت الاعتماديات
 
-## الأسرار
-```env
-ADMIN_ID=
-API_HASH=
-API_ID=
-BOT_TOKEN=
-TMDB_API_KEY=
+```bash
+pip install -r requirements.txt
 ```
 
-إعدادات IPTV/العرض تبقى في `config.py`.
+أو استخدم `start.sh` / `boot.py` (يثبت تلقائيًا إن لزم).
+
+---
+
+## الإعداد السريع
+
+1. انسخ ملف البيئة:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. املأ القيم الأساسية في `.env`:
+
+| المتغير | مطلوب؟ | الوصف |
+|---------|--------|-------|
+| `BOT_TOKEN` | ✅ | توكن البوت من @BotFather |
+| `ADMIN_ID` | ✅ | رقم تيليجرام الخاص بك (للأدمن) |
+| `R2_ENDPOINT` | للرفع | endpoint الخاص بـ R2 |
+| `R2_ACCESS_KEY_ID` | للرفع | |
+| `R2_SECRET_ACCESS_KEY` | للرفع | |
+| `R2_BUCKET_NAME` | للرفع | |
+| `RTMP_ENCRYPTION_KEY` | موصى به | مفتاح عشوائي طويل لتشفير مفاتيح الستريم |
+| `API_ID` / `API_HASH` | لـ Pyrogram | من my.telegram.org |
+| `ARCHIVE_CHANNEL_ID` | اختياري | قناة الأرشفة |
+| `AI_ENABLED` | اختياري | `true` لتفعيل المساعد الذكي |
+
+3. شغّل البوت:
+   ```bash
+   ./start.sh
+   # أو
+   python3 boot.py
+   ```
+
+---
+
+## هيكل المشروع
+
+```
+.
+├── boot.py              # نقطة التشغيل + تثبيت الاعتماديات
+├── main.py              # تسجيل الـ Handlers
+├── config.py            # الإعدادات من البيئة
+├── database.py          # طبقة قاعدة البيانات (SQLite + aiosqlite)
+├── handlers/            # معالجات الأوامر والكالباك
+│   ├── streams/         # (مُقسّم) إنشاء/تحكم/حالة البث
+│   ├── admin.py
+│   ├── cinema.py
+│   ├── files.py
+│   └── ...
+├── services/            # منطق الأعمال
+│   ├── stream.py        # إدارة عمليات FFmpeg
+│   ├── r2.py
+│   ├── oscar/           # عميل مصادر السينما
+│   ├── security/ssrf.py
+│   └── media/
+├── keyboards/           # لوحات المفاتيح
+├── core/                # صلاحيات، طابور، لوجينج
+├── utils/
+├── data/                # قاعدة البيانات والملفات المؤقتة
+└── requirements.txt
+```
+
+---
+
+## الأمان
+
+- كل الروابط المدخلة من المستخدم تمر عبر `services.security.ssrf.assert_safe_url`
+- مفاتيح RTMP تُشفّر في قاعدة البيانات عند وجود `RTMP_ENCRYPTION_KEY`
+- لا تضع التوكنات في الكود أو في git
+- استخدم `ADMIN_ID` واحد أو نظام صلاحيات الأدمن الموجود
+
+---
+
+## Rate Limiting
+
+تم إضافة نظام بسيط لتحديد معدل الطلبات الثقيلة (إنشاء بث، رفع، probe) لمنع الإساءة.
+
+---
+
+## ملاحظات KataBump / الاستضافة
+
+- ضع المتغيرات في لوحة Environment Variables
+- تأكد أن FFmpeg متوفر على السيرفر
+- للملفات الكبيرة استخدم Local Bot API (`TELEGRAM_LOCAL_API=true`)
+
+---
+
+## التطوير
+
+```bash
+# تشغيل مع لوج أكثر تفصيلاً
+LOG_LEVEL=DEBUG python3 boot.py
+```
+
+عند إضافة handlers جديدة سجّلها في `main.py`.
+
+---
+
+
+
+## FFmpeg — التشغيل واستكشاف الأخطاء
+
+البوت يعتمد على FFmpeg للبث الحي والتحويل.
+
+### ترتيب البحث عن FFmpeg
+1. `FFMPEG_PATH` من البيئة
+2. `bin/ffmpeg` (نسخة static يتم تنزيلها تلقائياً)
+3. النظام (`PATH`)
+4. محاولة `apt-get install ffmpeg` (إن وُجدت صلاحيات)
+5. تنزيل static من johnvansickle
+
+### إعدادات مفيدة
+| المتغير | الافتراضي | الوصف |
+|---------|-----------|--------|
+| `FFMPEG_PATH` | `ffmpeg` | مسار ثنائي FFmpeg |
+| `FFMPEG_TIMEOUT` | `15000000` | مهلة الشبكة (ميكروثانية) |
+| `FFMPEG_RECONNECT` | `true` | إعادة الاتصال عند انقطاع المصدر |
+| `MAX_STREAMS` | `4` | أقصى عدد بث متزامن |
+
+### تحسينات هذا الإصدار
+- اكتشاف خيارات FFmpeg مرة واحدة (cache) بدل استدعاء `-h full` لكل خيار
+- اختيار تلقائي للمُرمّز: `libx264` → `h264` → `mpeg4`
+- فرض أبعاد زوجية + حد أقصى 1280×720 لاستقرار RTMP
+- `thread_queue_size` لتقليل التعليق مع مدخلات متعددة
+- إغلاق pipes عند إيقاف العملية (منع deadlock / zombies)
+- فحص مبكر إذا خرج FFmpeg فوراً بعد التشغيل
+- رسائل خطأ عربية أوضح (403/404/encoder/RTMP broken pipe)
+- أرشفة HLS مع reconnect + حماية SSRF
+
+### أعطال شائعة
+| العرض | السبب المحتمل | الحل |
+|-------|---------------|------|
+| FFmpeg exited immediately | رابط ميت أو مفتاح RTMP خاطئ | تحقق من المصدر والمفتاح |
+| option not found | بناء FFmpeg قديم/ناقص | اترك البوت ينزل static أو حدّث FFmpeg |
+| unknown encoder libx264 | بناء بدون x264 | static من johnvansickle يتضمنه |
+| broken pipe / connection reset | RTMP رفض الاتصال | تأكد من `rtmps://...` + stream key |
+| stall / إعادة تشغيل متكررة | مصدر متقطع أو بطء شبكة | زد المصادر الاحتياطية أو تحقق من الـ CDN |
+
+
+## الترخيص
+
+مشروع خاص / للاستخدام الشخصي أو حسب اتفاق الفريق.
+
+---
+
+**تحسينات هذا الإصدار:**
+- تقسيم منطق البث إلى حزم أصغر
+- README كامل
+- .gitignore محسّن
+- Rate limiting أساسي
+- تنظيف معالجة الأخطاء في المسارات الحرجة
+
+**تحسينات إضافية (متابعة):**
+- `database.ensure_connected()` + WAL checkpoint عند الإغلاق
+- تنبيه الأدمن عند الأخطاء الحرجة (بحد أقصى مرة كل 3 دقائق)
+- التحقق من روابط RTMP قبل التشغيل
+- فصل callbacks الفحص (`probe_flow.py`)
+- Rate limit على حظر المستخدمين وإيقاف البث من الأدمن
+- مجلد `bin/` جاهز لنسخة FFmpeg الثابتة
+
+- تحسينات هيكلية عامة

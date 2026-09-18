@@ -1,4 +1,4 @@
-name: تشغيل البوت المدمج
+name: Youseif Stream Bot
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: merged-bot
+  group: youseif-stream-bot
   cancel-in-progress: true
 
 jobs:
@@ -17,28 +17,56 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
-      - name: تحميل الكود
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: تثبيت Python
+      - name: Install FFmpeg and runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg ca-certificates
+          ffmpeg -version | head -n 2
+          ffprobe -version | head -n 2
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
-      - name: تثبيت المكتبات
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest
 
-      - name: فحص Python
-        run: python -m py_compile bot.py cinema_core.py youseif_core.py config.py plugin_loader.py
+      - name: Compile all Python modules
+        run: python -m compileall -q .
 
-      - name: تشغيل البوت
+      - name: Run unit tests
+        run: python -m pytest -q
+
+      - name: Start stream bot
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          API_ID: ${{ secrets.API_ID }}
-          API_HASH: ${{ secrets.API_HASH }}
           ADMIN_ID: ${{ secrets.ADMIN_ID }}
+          ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
+          AI_ENABLED: ${{ secrets.AI_ENABLED }}
+          AI_MAX_RETRIES: ${{ secrets.AI_MAX_RETRIES }}
+          AI_MODE: ${{ secrets.AI_MODE }}
+          AI_TIMEOUT: ${{ secrets.AI_TIMEOUT }}
+          API_HASH: ${{ secrets.API_HASH }}
+          API_ID: ${{ secrets.API_ID }}
+          API_READ_ACCESS_TOKEN: ${{ secrets.API_READ_ACCESS_TOKEN }}
+          AUTO_BUILD_ON_EVIDENCE: ${{ secrets.AUTO_BUILD_ON_EVIDENCE }}
+          BOT_FACTORY_ROOT: ${{ secrets.BOT_FACTORY_ROOT }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          PYROGRAM_FILE_LIMIT: ${{ secrets.PYROGRAM_FILE_LIMIT }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: python bot.py
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          FFMPEG_PATH: ffmpeg
+        run: python main.py
