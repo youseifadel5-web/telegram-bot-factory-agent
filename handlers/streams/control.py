@@ -1,8 +1,9 @@
 """Stream start / stop / volume / bitrate controls."""
 from __future__ import annotations
 
+import asyncio
 import logging
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database import db
@@ -14,10 +15,23 @@ from config import ADMIN_ID
 from utils.visualizer import build_live_panel
 
 from .common import _safe_update_reply, _stop_auto_refresh
-from .status import _ensure_auto_refresh
+from .status import _ensure_auto_refresh, stream_status_callback
+from services.source_probe import probe_source, format_probe_error, looks_like_video, looks_like_audio
 from services import playlist as playlist_service
 
 logger = logging.getLogger(__name__)
+
+
+async def _refresh_status(update, context, stream_id: int):
+    """Render status after an action; action callbacks are not status callbacks."""
+    query = update.callback_query
+    if query:
+        original = query.data
+        query.data = f"stream_status:{stream_id}"
+        try:
+            await stream_status_callback(update, context)
+        finally:
+            query.data = original
 
 @rate_limit(calls=6, period=30, key_prefix="stream_ctrl")
 async def stream_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,8 +73,9 @@ async def stream_start_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         offset = float(s.get("start_offset") or 0)
-        from services.source_probe import looks_like_video
-        use_video = bool(probe.get("has_video")) or looks_like_video(src)
+        use_video = not (probe.get("media_kind") == "audio" or looks_like_audio(src)) and (
+            bool(probe.get("has_video")) or looks_like_video(src)
+        )
         pid = await asyncio.to_thread(
             stream_manager.start_stream,
             stream_id, src, s["rtmp_url"],
@@ -76,7 +91,7 @@ async def stream_start_callback(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             await query.answer("❌ فشل التشغيل", show_alert=True)
             await db.update_stream_error(stream_id, "فشل تشغيل FFmpeg")
-        await stream_status_callback(update, context)
+        await _refresh_status(update, context, stream_id)
     except Exception as e:
         logger.exception(e)
 
@@ -116,7 +131,7 @@ async def stream_stop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     asyncio.create_task(_bg())
         except Exception as ex:
             logger.debug("auto-archive skip: %s", ex)
-        await stream_status_callback(update, context)
+        await _refresh_status(update, context, stream_id)
     except Exception as e:
         logger.exception(e)
 
@@ -163,10 +178,10 @@ async def stream_restart_callback(update: Update, context: ContextTypes.DEFAULT_
         if not s or s["user_id"] != query.from_user.id:
             await query.answer("غير مسموح", show_alert=True)
             return
-        pid = await asyncio.to_thread(stream_manager.restart_stream, sid)
-        if pid:
-            await db.update_stream_status(sid, "running", pid)
-        await stream_status_callback(update, context)
+        # stop_stream removes in-memory metadata, so restart_stream cannot
+        # restart it. Reuse the DB-backed start path instead.
+        query.data = f"stream_start:{sid}"
+        await stream_start_callback(update, context)
     except Exception as e:
         logger.exception(e)
 
@@ -176,7 +191,7 @@ async def stream_vol_up_callback(update: Update, context: ContextTypes.DEFAULT_T
     sid = int(query.data.split(":")[1])
     vol = stream_manager.volume_delta(sid, 0.1)
     await query.answer(f"🔊 {int((vol or 0)*100)}%")
-    await stream_status_callback(update, context)
+    await _refresh_status(update, context, sid)
 
 
 async def stream_vol_down_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -184,7 +199,7 @@ async def stream_vol_down_callback(update: Update, context: ContextTypes.DEFAULT
     sid = int(query.data.split(":")[1])
     vol = stream_manager.volume_delta(sid, -0.1)
     await query.answer(f"🔉 {int((vol or 0)*100)}%")
-    await stream_status_callback(update, context)
+    await _refresh_status(update, context, sid)
 
 
 async def stream_mute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,7 +209,7 @@ async def stream_mute_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     muted = not meta.get("muted", False)
     stream_manager.mute(sid, muted)
     await query.answer("🔇 مكتوم" if muted else "🔈 الصوت عاد")
-    await stream_status_callback(update, context)
+    await _refresh_status(update, context, sid)
 
 
 async def stream_br_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -203,11 +218,9 @@ async def stream_br_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     sid, br = int(parts[1]), parts[2]
     stream_manager.set_bitrate(sid, br)
     await query.answer(f"🎵 {br}")
-    await stream_status_callback(update, context)
+    await _refresh_status(update, context, sid)
 
 
 # --------------------------------------------------------------------------- #
 # Playlist controls
 # --------------------------------------------------------------------------- #
-
-

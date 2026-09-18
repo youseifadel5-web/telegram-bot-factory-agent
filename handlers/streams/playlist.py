@@ -1,6 +1,7 @@
 """Playlist controls for active streams."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -10,9 +11,20 @@ from services.stream import stream_manager
 from keyboards.menus import stream_actions_keyboard
 from utils.helpers import is_admin, safe_edit_message
 from config import ADMIN_ID
+from .status import stream_status_callback
 
 logger = logging.getLogger(__name__)
 from services import playlist as playlist_service
+
+
+async def _refresh_status(update, context, sid: int):
+    query = update.callback_query
+    original = query.data
+    query.data = f"stream_status:{sid}"
+    try:
+        await stream_status_callback(update, context)
+    finally:
+        query.data = original
 
 async def _get_or_create_pl(user_id: int, stream_id: int, s: dict) -> int:
     return await playlist_service.ensure_playlist_for_stream(
@@ -64,16 +76,16 @@ async def pl_next_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.update_stream_meta(sid, source_url=item["source_url"], title=item.get("title") or s.get("title"))
         if stream_manager.is_running(sid) and s.get("rtmp_url"):
             stream_manager.stop_stream(sid)
-            from services.source_probe import looks_like_video as _llv
+            from services.source_probe import looks_like_video as _llv, looks_like_audio as _lla
             pid_ff = await asyncio.to_thread(
                 stream_manager.start_stream,
                 sid, item["source_url"], s["rtmp_url"],
-                with_video=_llv(item.get("source_url") or ""),
+                with_video=not _lla(item.get("source_url") or "") and _llv(item.get("source_url") or ""),
             )
             if pid_ff:
                 await db.update_stream_status(sid, "running", pid_ff)
         await query.answer(f"➡️ {item.get('title') or 'التالي'}")
-        await stream_status_callback(update, context)
+        await _refresh_status(update, context, sid)
     except Exception as e:
         logger.exception(e)
         await query.answer("خطأ", show_alert=True)
@@ -95,16 +107,16 @@ async def pl_prev_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.update_stream_meta(sid, source_url=item["source_url"], title=item.get("title") or s.get("title"))
         if stream_manager.is_running(sid) and s.get("rtmp_url"):
             stream_manager.stop_stream(sid)
-            from services.source_probe import looks_like_video as _llv
+            from services.source_probe import looks_like_video as _llv, looks_like_audio as _lla
             pid_ff = await asyncio.to_thread(
                 stream_manager.start_stream,
                 sid, item["source_url"], s["rtmp_url"],
-                with_video=_llv(item.get("source_url") or ""),
+                with_video=not _lla(item.get("source_url") or "") and _llv(item.get("source_url") or ""),
             )
             if pid_ff:
                 await db.update_stream_status(sid, "running", pid_ff)
         await query.answer(f"⬅️ {item.get('title') or 'السابق'}")
-        await stream_status_callback(update, context)
+        await _refresh_status(update, context, sid)
     except Exception as e:
         logger.exception(e)
         await query.answer("خطأ", show_alert=True)
@@ -145,5 +157,3 @@ async def pl_loop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Stations (JSON-defined channels with backup/failover sources)
 # --------------------------------------------------------------------------- #
 from services import stations as stations_service
-
-
