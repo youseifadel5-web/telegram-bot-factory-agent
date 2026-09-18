@@ -45,6 +45,17 @@ def test_build_audio_only_has_black_video():
     assert "-shortest" not in cmd
 
 
+def test_http_command_omits_incompatible_protocol_options():
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg",
+        "https://qurango.net/radio/ahmad_alajmy",
+        "rtmps://example/live/KEY",
+        with_video=False,
+    )
+    assert "-http_seekable" not in cmd
+    assert "-http_persistent" not in cmd
+
+
 def test_validate_rejects_private_url():
     try:
         sm._validate_source_url("http://127.0.0.1/stream.m3u8")

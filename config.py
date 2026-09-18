@@ -38,9 +38,16 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 XAI_API_KEY = os.getenv("XAI_API_KEY", "").strip() or os.getenv("GROK_API_KEY", "").strip()
 GROK_API_KEY = os.getenv("GROK_API_KEY", "").strip() or XAI_API_KEY
-# A configured provider is not permission to intercept normal bot messages.
-# AI must be explicitly enabled; the default mode is explicit-trigger only.
-AI_ENABLED = os.getenv("AI_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+# A provider key makes the explicit «يوسف» assistant usable when a hosting
+# panel leaves AI_ENABLED unset. Setting AI_ENABLED=false still disables it;
+# normal messages are never intercepted unless the assistant is activated.
+_ai_enabled_raw = os.getenv("AI_ENABLED")
+_ai_has_provider = any((OPENAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, XAI_API_KEY))
+AI_ENABLED = (
+    _ai_enabled_raw.strip().lower() not in ("0", "false", "no", "off")
+    if _ai_enabled_raw is not None and _ai_enabled_raw.strip()
+    else _ai_has_provider
+)
 AI_MODE = os.getenv("AI_MODE", "explicit").strip().lower() or "explicit"
 AI_TIMEOUT = _safe_int(os.getenv("AI_TIMEOUT", "90"), 90)
 AI_MAX_RETRIES = _safe_int(os.getenv("AI_MAX_RETRIES", "3"), 3)

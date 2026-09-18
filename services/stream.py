@@ -313,8 +313,9 @@ def build_ffmpeg_cmd(
             ("reconnect_delay_max", "15"),
             ("reconnect_on_network_error", "1"),
             ("reconnect_on_http_error", "4xx,5xx"),
-            ("http_persistent", "0"),
-            ("http_seekable", "0"),
+            # Do not pass http_persistent/http_seekable here. Some Ubuntu and
+            # static FFmpeg builds list these in generic help, but reject them
+            # for this input protocol with "Option ... not found".
         ]
         for option, value in option_values:
             if _ffmpeg_supports_option(ffmpeg, option):
