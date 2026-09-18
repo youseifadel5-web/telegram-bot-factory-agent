@@ -880,9 +880,12 @@ class StreamManager:
         start_offset: float = 0.0,
         extra_headers: Optional[dict] = None,
     ) -> Optional[int]:
-        """Starts a stream. Only ONE broadcast is allowed at a time system-wide:
-        any other running stream is stopped first, and old ffmpeg sessions are
-        cleaned up before the new one begins."""
+        """Start one stream without stopping other active streams.
+
+        The configured ``MAX_STREAMS`` limit applies per bot process (four in
+        GitHub Actions), so a radio stream and new user-created broadcasts can
+        run together. Re-starting the same stream id replaces only that id.
+        """
         if not self.ensure_ffmpeg():
             return None
         with self._lock:

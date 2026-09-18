@@ -69,7 +69,10 @@ async def start_rtmp_setup_flags(update: Update, context: ContextTypes.DEFAULT_T
             "solution": "أعد الفحص أو تابع التشغيل يدويًا إذا كان الرابط موثوقًا",
         }
     context.user_data["probe_result"] = probe
-    context.user_data["media_kind"] = probe.get("media_kind") or "video"
+    from services.source_probe import looks_like_audio
+    context.user_data["media_kind"] = probe.get("media_kind") or (
+        "audio" if looks_like_audio(source) else "video"
+    )
     if probe.get("cleaned_url"):
         context.user_data["stream_source"] = probe["cleaned_url"]
 
@@ -221,5 +224,4 @@ async def receive_stream_key(update: Update, context: ContextTypes.DEFAULT_TYPE)
             key = key.rstrip("/").split("/")[-1]
         context.user_data["stream_key"] = key
     return await _call_finalize(update, context)
-
 

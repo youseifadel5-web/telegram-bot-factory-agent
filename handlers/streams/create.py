@@ -118,7 +118,13 @@ async def receive_source(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cleaned = probe.get("cleaned_url") or text
     context.user_data["stream_source"] = cleaned
     context.user_data["probe_result"] = probe
-    context.user_data["media_kind"] = probe.get("media_kind") or "video"
+    from services.source_probe import looks_like_audio
+    # A radio/Quran endpoint may not expose a probeable media header. Do not
+    # default an unknown audio URL to video; finalize_stream will still add the
+    # Telegram-compatible black video track internally.
+    context.user_data["media_kind"] = probe.get("media_kind") or (
+        "audio" if looks_like_audio(cleaned) else "video"
+    )
     context.user_data["start_offset"] = 0
 
     panel = format_probe_panel(probe, cleaned)

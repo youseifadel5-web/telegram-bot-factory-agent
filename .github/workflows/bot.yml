@@ -71,6 +71,9 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           FFMPEG_PATH: ffmpeg
+          # Allow the radio plus up to three additional broadcasts in the
+          # same bot process. This is intentionally explicit in CI.
+          MAX_STREAMS: "4"
         # GitHub-hosted runners are temporary, so run the bot for one scheduled
         # window instead of killing it after the startup notification.
         run: |
