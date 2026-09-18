@@ -37,6 +37,8 @@ class HLSInfo:
     target_duration: float = 0.0
     media_sequence: int = 0
     has_endlist: bool = False
+    playlist_type: str = ""
+    is_live: Optional[bool] = None
     segment_count: int = 0
     first_segment: str = ""
     raw_type: str = ""
@@ -87,6 +89,10 @@ def parse_m3u8_text(text: str, base_url: str = "") -> HLSInfo:
             info.has_endlist = True
             info.is_media = True
             continue
+        if line.startswith("#EXT-X-PLAYLIST-TYPE:"):
+            info.playlist_type = line.split(":", 1)[1].strip().upper()
+            info.is_media = True
+            continue
         if line.startswith("#EXTINF:"):
             info.is_media = True
             continue
@@ -122,6 +128,13 @@ def parse_m3u8_text(text: str, base_url: str = "") -> HLSInfo:
     if segments:
         info.first_segment = segments[0]
         info.is_media = True
+    if info.is_media:
+        # EVENT/VOD and ENDLIST are finite playlists; an open playlist is live.
+        info.is_live = not info.has_endlist and info.playlist_type not in ("VOD",)
+        if info.playlist_type == "EVENT":
+            info.is_live = True
+    elif info.is_master:
+        info.is_live = None
     if info.is_master and not info.is_media:
         info.raw_type = "master"
     elif info.is_media:
