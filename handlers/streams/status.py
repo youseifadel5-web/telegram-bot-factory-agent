@@ -1,6 +1,7 @@
 """Stream status display and auto-refresh."""
 from __future__ import annotations
 
+import html
 import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,6 +17,24 @@ from utils.visualizer import build_live_panel
 from .common import _STATUS_TASKS, _STATUS_TICK, _stop_auto_refresh, cancel_all_status_tasks, _safe_update_reply
 
 logger = logging.getLogger(__name__)
+
+
+def _quality_label(meta: dict) -> str:
+    """Human label for live panel quality row."""
+    q = (meta or {}).get("quality")
+    if q:
+        try:
+            from services.quality_manager import label_for
+            return label_for(q)
+        except Exception:
+            return str(q)
+    br = str((meta or {}).get("audio_bitrate") or "")
+    if "192" in br:
+        return "عالي"
+    if "64" in br:
+        return "منخفض"
+    return "متوسط"
+
 
 async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -33,7 +52,17 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         streams = await db.get_active_streams() or []
-        if not streams:
+        # Also surface any process still tracked by stream_manager even if DB lag
+        active_sid = stream_manager.get_active_stream_id()
+        if active_sid and not any(int(s.get("id") or 0) == active_sid for s in streams):
+            try:
+                extra = await db.get_stream(active_sid)
+                if extra:
+                    streams = list(streams) + [extra]
+            except Exception:
+                pass
+
+        if not streams and not active_sid:
             text = "📡 <b>البث الحالي</b>\n\n🔴 لا يوجد بث يعمل حالياً.\n\nأنشئ بثاً من القائمة أو شغّل محطة/قناة."
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚀 إنشاء بث", callback_data="stream_new")],
@@ -45,7 +74,54 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
                 await msg.reply_text(text, parse_mode="HTML", reply_markup=kb)
             return
 
-        text = "📡 <b>البثوث الحالية</b>\n\nكل البثوث النشطة تظهر هنا مع اسم صاحب البث.\n\n"
+        # Single active stream → show detailed panel directly
+        live_ones = []
+        for s in streams:
+            try:
+                sid = int(s.get("id"))
+                if stream_manager.is_running(sid) or stream_manager.is_healthy(sid):
+                    live_ones.append(s)
+            except Exception:
+                pass
+        if len(live_ones) == 1 or (active_sid and len(streams) == 1):
+            target = live_ones[0] if live_ones else streams[0]
+            sid = int(target.get("id"))
+            # Reuse stream_status path by faking callback data
+            if query:
+                query.data = f"stream_status:{sid}"
+                await stream_status_callback(update, context)
+                return
+            # message path: build panel
+            running = stream_manager.is_running(sid)
+            healthy = stream_manager.is_healthy(sid)
+            meta = stream_manager.get_meta(sid)
+            state = stream_manager.get_state(sid)
+            uptime = stream_uptime(target.get("started_at")) if running else "00:00:00"
+            text = build_live_panel(
+                title=target.get("title") or "بث",
+                stream_id=sid,
+                running=running,
+                uptime=uptime,
+                tick=0,
+                state=state,
+                volume=meta.get("volume", 1.0),
+                bitrate=meta.get("audio_bitrate", "128k"),
+                restarts=meta.get("restarts", 0),
+                last_error=meta.get("last_error", "") or (target.get("last_error") or ""),
+                ffmpeg_ok=running,
+                rtmp_ok=healthy,
+                source_ok=bool(meta.get("data_flow") or healthy),
+                codec_info=meta.get("codec_info", f"AAC {meta.get('audio_bitrate', '128k')} · 48kHz Stereo"),
+            )
+            can_control = (target.get("user_id") == user_id or is_admin(user_id, ADMIN_ID))
+            await msg.reply_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=stream_actions_keyboard(sid, running, can_control=can_control),
+            )
+            return
+
+        text = "📡 <b>البث الحالي</b>\n\n"
         buttons = []
         for s in streams[:10]:
             try:
@@ -74,7 +150,9 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
                 owner_user = await db.get_user(int(owner)) if owner else None
                 owner_name = (owner_user or {}).get("first_name") or (owner_user or {}).get("username") or str(owner or "—")
                 owner_name = html.escape(str(owner_name)[:22])
-                text += f"{icon} <b>#{sid}</b> {title}\n👤 {owner_name}\n⏱ {uptime}\n\n"
+                text += f"{icon} <b>Stream #{sid}</b> {title}\n"
+                text += f"الحالة: {icon} {'ON AIR' if healthy else ('جاري' if running else 'متوقف')}\n"
+                text += f"⏱ {uptime} · 👤 {owner_name}\n\n"
                 buttons.append([
                     InlineKeyboardButton(
                         f"{icon} #{sid} {str(s.get('title') or 'بث')[:20]}",
@@ -83,6 +161,8 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
                 ])
             except Exception as row_error:
                 logger.warning("Skipping malformed stream row in current_stream: %s", row_error)
+        if not buttons:
+            text += "🔴 لا يوجد بث فعّال في الذاكرة حالياً.\n"
         buttons.append([
             InlineKeyboardButton("🔄 تحديث", callback_data="current_stream"),
             InlineKeyboardButton("🔙 رجوع", callback_data="main_menu"),
@@ -156,7 +236,7 @@ async def stream_status_callback(update: Update, context: ContextTypes.DEFAULT_T
             rtmp_ok=healthy,
             source_ok=bool(meta.get("data_flow")),
             codec_info=meta.get("codec_info", f"AAC {meta.get('audio_bitrate', '128k')} · 48kHz Stereo"),
-            quality="عالي" if "192" in str(meta.get("audio_bitrate", "")) else ("منخفض" if "64" in str(meta.get("audio_bitrate", "")) else "متوسط"),
+            quality=_quality_label(meta),
         )
         await safe_edit_message(
             query,
@@ -222,7 +302,7 @@ async def _ensure_auto_refresh(context, chat_id: int, message_id: int, stream_id
                     rtmp_ok=healthy,
                     source_ok=bool(meta.get("data_flow")),
                     codec_info=meta.get("codec_info", f"AAC {meta.get('audio_bitrate', '128k')} · 48kHz Stereo"),
-                    quality="عالي" if "192" in str(meta.get("audio_bitrate", "")) else ("منخفض" if "64" in str(meta.get("audio_bitrate", "")) else "متوسط"),
+                    quality=_quality_label(meta),
                 )
                 try:
                     await context.bot.edit_message_text(
