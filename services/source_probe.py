@@ -45,6 +45,35 @@ def sanitize_url_for_ffmpeg(url: str) -> str:
         return u
 
 
+
+def sniff_remote_content(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 8) -> Dict[str, Any]:
+    """Lightweight content sniff for misleading live URLs (.css/.php/etc.).
+    Only reads a small prefix and never treats the result as full media validation.
+    """
+    if not url.startswith(("http://", "https://")):
+        return {}
+    try:
+        import urllib.request
+        req_headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity",
+        }
+        if headers:
+            req_headers.update({str(k): str(v) for k, v in headers.items()})
+        req = urllib.request.Request(url, headers=req_headers, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read(16384)
+            ctype = str(resp.headers.get("Content-Type") or "").lower()
+            final_url = str(getattr(resp, "url", url) or url)
+        sample = raw.decode("utf-8", errors="ignore").lstrip("\ufeff \r\n\t")
+        is_hls = sample.startswith("#EXTM3U") or "#EXT-X-" in sample[:16000]
+        is_audio = ctype.startswith("audio/") or any(x in ctype for x in ("mpegurl", "aac", "mp3"))
+        return {"content_type": ctype, "is_hls": is_hls, "is_audio": is_audio, "final_url": final_url}
+    except Exception as e:
+        logger.debug("content sniff failed: %s", e)
+        return {}
+
 def detect_source_type(url: str) -> str:
     u = (url or "").lower().split("?")[0]
     if u.endswith(".m3u8") or "/hls" in u or "m3u8" in u:
@@ -161,9 +190,17 @@ def probe_source(
         "format": None,
         "codec": None,
         "bitrate": None,
+        "audio_codec": None,
+        "video_codec": None,
+        "sample_rate": None,
+        "channels": None,
+        "fps": None,
         "cleaned_url": "",
         "ffmpeg_ready": bool(_ffmpeg_bin()),
         "note": None,
+        "is_hls": False,
+        "content_type": "",
+        "resolved_url": "",
     }
 
     raw = url
@@ -177,6 +214,19 @@ def probe_source(
 
     result["cleaned_url"] = url
     result["source_type"] = detect_source_type(url)
+
+    # Detect HLS/audio from content even when the URL extension is misleading.
+    if url.startswith(("http://", "https://")):
+        sniff = sniff_remote_content(url, headers=headers, timeout=min(8, timeout))
+        result["content_type"] = sniff.get("content_type") or ""
+        if sniff.get("final_url") and sniff.get("final_url") != url:
+            result["resolved_url"] = sniff["final_url"]
+        if sniff.get("is_hls"):
+            result["source_type"] = "M3U8 / HLS"
+            result["is_hls"] = True
+        elif sniff.get("is_audio"):
+            result["source_type"] = "Radio / Audio Stream"
+            result["media_kind"] = "audio"
 
     if not url:
         result["error"] = "الرابط فارغ"
@@ -276,13 +326,15 @@ def probe_source(
                     hdr_lines.append(f"{k}: {v}")
                 if hdr_lines:
                     http_args += ["-headers", "\r\n".join(hdr_lines) + "\r\n"]
-            if (".m3u8" in url.lower() or "/hls" in url.lower()) and _supports_ffmpeg_option(probe, "allowed_extensions"):
+            if (result.get("is_hls") or ".m3u8" in url.lower() or "/hls" in url.lower()) and _supports_ffmpeg_option(probe, "allowed_extensions"):
                 http_args += ["-allowed_extensions", "ALL"]
 
         if is_ffprobe:
+            input_format_args = ["-f", "hls"] if result.get("is_hls") else []
             cmd = [
                 probe, "-v", "quiet",
                 *http_args,
+                *input_format_args,
                 "-print_format", "json",
                 "-show_format", "-show_streams",
                 "-analyzeduration", "10000000",
@@ -321,6 +373,14 @@ def probe_source(
                 if video_streams:
                     v = video_streams[0]
                     result["codec"] = v.get("codec_name")
+                    result["video_codec"] = v.get("codec_name")
+                    fr = v.get("r_frame_rate") or v.get("avg_frame_rate")
+                    if fr and "/" in str(fr):
+                        try:
+                            a, b = str(fr).split("/", 1)
+                            result["fps"] = round(float(a) / float(b), 2) if float(b) else None
+                        except Exception:
+                            pass
                     w, h = v.get("width"), v.get("height")
                     if w and h:
                         result["quality"] = f"{w}x{h}"
@@ -332,6 +392,9 @@ def probe_source(
                             result["quality"] = f"480p ({w}x{h})"
                 if audio_streams:
                     a = audio_streams[0]
+                    result["audio_codec"] = a.get("codec_name")
+                    result["sample_rate"] = a.get("sample_rate")
+                    result["channels"] = a.get("channels")
                     if not result["codec"]:
                         result["codec"] = a.get("codec_name")
                     br = a.get("bit_rate") or fmt.get("bit_rate")

@@ -78,8 +78,16 @@ async def start_stream(user_id: int, stream_id: int, source_url: str, rtmp_url: 
     probe = probe_source(source_url, headers=headers)
     if not probe.get("ok"):
         return {"ok": False, "error_code": "SOURCE_INVALID_DATA", "error": probe.get("error") or "فشل فحص المصدر", "probe": probe}
-    pid = stream_manager.start_stream(stream_id, source_url, rtmp_url, with_video=None,
-                                      extra_headers=headers, media_state=probe.get("media_state"), probe_result=probe)
+    pid = stream_manager.start_stream(
+        stream_id, source_url, rtmp_url,
+        with_video=bool(probe.get("has_video")),
+        extra_headers=headers,
+        media_kind=probe.get("media_kind") or "unknown",
+        has_audio=probe.get("has_audio"),
+        has_video=probe.get("has_video"),
+        source_type=probe.get("source_type") or "",
+        probe_result=probe,
+    )
     if not pid:
         return {"ok": False, "error_code": stream_manager.get_meta(stream_id).get("error_code") or "STREAM_START_FAILED",
                 "error": stream_manager.get_meta(stream_id).get("last_error") or "تعذر بدء البث"}

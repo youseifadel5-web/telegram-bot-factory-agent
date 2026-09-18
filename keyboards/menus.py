@@ -228,12 +228,15 @@ def stream_actions_keyboard(stream_id: int, is_running: bool, can_control: bool 
             [InlineKeyboardButton("📊 تحديث الحالة", callback_data=f"stream_status:{sid}")],
             [InlineKeyboardButton("🔙 البثوث الحالية", callback_data="current_stream")],
         ])
+    control_row = (
+        [InlineKeyboardButton("⏹ إيقاف", callback_data=f"stream_stop:{sid}"),
+         InlineKeyboardButton("🔄 إعادة", callback_data=f"stream_restart:{sid}")]
+        if is_running else
+        [InlineKeyboardButton("▶️ تشغيل", callback_data=f"stream_start:{sid}"),
+         InlineKeyboardButton("🔄 إعادة", callback_data=f"stream_restart:{sid}")]
+    )
     buttons = [
-        [
-            InlineKeyboardButton("▶️ تشغيل", callback_data=f"stream_start:{sid}"),
-            InlineKeyboardButton("⏹ إيقاف", callback_data=f"stream_stop:{sid}"),
-            InlineKeyboardButton("🔄 إعادة", callback_data=f"stream_restart:{sid}"),
-        ],
+        control_row,
         [
             InlineKeyboardButton("⬅️ السابق", callback_data=f"pl_prev:{sid}"),
             InlineKeyboardButton("📃 القائمة", callback_data=f"pl_view:{sid}"),

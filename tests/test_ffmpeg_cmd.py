@@ -29,19 +29,20 @@ def test_build_video_cmd_contains_essentials():
     assert "-c:v" in cmd and "libx264" in cmd
     assert "-c:a" in cmd and "aac" in cmd
     assert "-progress" in cmd
-    assert "-re" in cmd
+    assert "-re" not in cmd  # HLS live input must not be throttled
 
 
-def test_build_audio_only_has_black_video():
+def test_build_audio_only_is_genuine_audio():
     cmd = sm.build_ffmpeg_cmd(
         "ffmpeg",
         "https://radio.example.com/stream.mp3",
         "rtmps://example/live/KEY",
         with_video=False,
     )
-    assert "lavfi" in cmd
-    assert any("color=c=black" in str(x) for x in cmd)
-    # -shortest intentionally omitted: it kills live radio on brief stalls
+    assert "lavfi" not in cmd
+    assert "color=c=black" not in " ".join(map(str, cmd))
+    assert "-vn" in cmd
+    assert "-c:a" in cmd and "aac" in cmd
     assert "-shortest" not in cmd
 
 
@@ -75,3 +76,19 @@ if __name__ == "__main__":
             fn()
             print("OK", name)
     print("all ffmpeg cmd tests passed")
+
+
+def test_vod_keeps_re():
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg", "https://cdn.example.com/movie.mp4", "rtmps://example/live/KEY",
+        with_video=True, has_video=True, has_audio=True, source_type="MP4",
+    )
+    assert "-re" in cmd
+
+
+def test_hls_with_misleading_extension_uses_hls_demuxer():
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg", "https://cdn.example.com/live.css", "rtmps://example/live/KEY",
+        with_video=True, has_video=True, has_audio=True, source_type="M3U8 / HLS",
+    )
+    assert "-f" in cmd and "hls" in cmd

@@ -232,6 +232,11 @@ def build_ffmpeg_cmd(
     with_video: bool = False,
     start_offset: float = 0.0,
     extra_headers: dict = None,
+    media_kind: str = "unknown",
+    has_audio: Optional[bool] = None,
+    has_video: Optional[bool] = None,
+    source_type: str = "",
+    force_video_for_audio: bool = False,
 ) -> list:
     """Build a robust FFmpeg command for Telegram RTMPS / FLV live ingest.
 
@@ -241,7 +246,7 @@ def build_ffmpeg_cmd(
     - Force even dimensions + max 1280x720 (Telegram-friendly)
     - thread_queue_size to avoid multi-input stalls
     - Use config FFMPEG_TIMEOUT when available
-    - Safer audio-only path with black video track
+    - True audio-only output when source has no video; optional compatibility video fallback
     - FLV flags friendly to indefinite live streams
     """
     try:
@@ -335,42 +340,66 @@ def build_ffmpeg_cmd(
         if (".m3u8" in source_url.lower() or "/hls" in source_url.lower()) and _ffmpeg_supports_option(ffmpeg, "live_start_index"):
             cmd += ["-live_start_index", "-1"]
 
-    # Real-time pacing for continuous live publish. Safe for both VOD and live HLS.
+    # Decide media mode from the actual probe when available. URL extension is only a fallback.
+    mk = (media_kind or "").lower()
+    u = source_url.lower().split("?", 1)[0]
+    if mk not in ("audio", "video"):
+        if any(x in u for x in (".mp3", ".aac", ".m4a", ".ogg", ".opus", ".wav", "/radio", "radio.", "icecast", "shoutcast")):
+            mk = "audio"
+        else:
+            mk = "video"
+    if has_audio is None:
+        has_audio = True if mk in ("audio", "video") else bool(with_video)
+    if has_video is None:
+        has_video = (mk == "video" and bool(with_video))
+    audio_only = (mk == "audio" and not has_video)
+    video_only = (mk == "video" and not has_audio)
+    effective_video = bool(with_video or has_video) and not audio_only
+    if audio_only and force_video_for_audio:
+        effective_video = True
+
+    # Live inputs must not be artificially throttled with -re. VOD/files may use it.
+    is_live = any(x in (source_type or "").lower() for x in ("hls", "m3u8", "live", "rtmp", "radio", "iptv"))
+    if not is_live:
+        u = source_url.lower()
+        is_live = any(x in u for x in (".m3u8", "/hls", "/live", "rtmp://", "rtmps://", "/radio", "icecast", "shoutcast"))
+    if not is_live:
+        cmd += ["-re"]
+
+    # HLS manifests can have misleading extensions (e.g. .css/.php). The probe may
+    # identify them by content; force the HLS demuxer in that case.
+    st = (source_type or "").lower()
+    is_hls = "hls" in st or "m3u8" in st or any(x in source_url.lower() for x in (".m3u8", "/hls"))
+    if is_hls:
+        cmd += ["-f", "hls"]
+
     cmd += [
-        "-re",
         "-fflags", "+genpts+discardcorrupt+igndts",
         "-max_interleave_delta", "0",
         "-thread_queue_size", "512",
         "-i", source_url,
     ]
 
-    if with_video:
+    if effective_video:
         vcodec_block = [
             "-map", "0:v:0?",
-            "-map", "0:a:0?",
-            "-c:v", v_encoder,
         ]
+        if has_audio is not False:
+            vcodec_block += ["-map", "0:a:0?"]
+        vcodec_block += ["-c:v", v_encoder]
         if x264_style:
+            vcodec_block += ["-preset", "veryfast", "-tune", "zerolatency"]
+        vcodec_block += [
+            "-b:v", "1000k", "-maxrate", "1200k", "-bufsize", "2000k",
+            "-pix_fmt", "yuv420p", "-r", "25", "-vf", vf_scale,
+        ]
+        if has_audio is not False:
             vcodec_block += [
-                "-preset", "veryfast",
-                "-tune", "zerolatency",
+                "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000", "-ac", "2",
+                "-af", af,
             ]
         vcodec_block += [
-            "-b:v", "1000k",
-            "-maxrate", "1200k",
-            "-bufsize", "2000k",
-            "-pix_fmt", "yuv420p",
-            "-r", "25",
-            "-vf", vf_scale,
-            "-c:a", "aac",
-            "-b:a", audio_bitrate,
-            "-ar", "48000",
-            "-ac", "2",
-            "-af", af,
-            "-max_muxing_queue_size", "2048",
-            "-g", "50",
-            "-keyint_min", "50",
-            "-sc_threshold", "0",
+            "-max_muxing_queue_size", "2048", "-g", "50", "-keyint_min", "50", "-sc_threshold", "0",
         ]
         if _ffmpeg_supports_option(ffmpeg, "fps_mode"):
             vcodec_block += ["-fps_mode", "cfr"]
@@ -378,38 +407,17 @@ def build_ffmpeg_cmd(
             vcodec_block += ["-vsync", "cfr"]
         cmd += vcodec_block
     else:
-        # Audio-only → synthetic black video track required by Telegram Live
+        # Genuine audio-only output. No synthetic black video is created.
         cmd += [
-            "-f", "lavfi",
-            "-thread_queue_size", "512",
-            "-i", "color=c=black:s=1280x720:r=25",
-            "-map", "1:v:0",
             "-map", "0:a:0?",
-            "-c:v", v_encoder,
-        ]
-        if x264_style:
-            cmd += ["-preset", "veryfast", "-tune", "zerolatency"]
-        cmd += [
-            "-b:v", "300k",
-            "-maxrate", "350k",
-            "-bufsize", "600k",
-            "-pix_fmt", "yuv420p",
-            "-r", "25",
+            "-vn",
             "-c:a", "aac",
             "-b:a", audio_bitrate,
             "-ar", "48000",
             "-ac", "2",
             "-af", af,
             "-max_muxing_queue_size", "1024",
-            "-g", "50",
-            "-keyint_min", "50",
-            "-sc_threshold", "0",
-            # -shortest removed: kills live radio/quran on brief audio stalls
         ]
-        if _ffmpeg_supports_option(ffmpeg, "fps_mode"):
-            cmd += ["-fps_mode", "cfr"]
-        else:
-            cmd += ["-vsync", "cfr"]
 
     # Machine-readable progress for the watchdog; FLV without bogus duration/size.
     cmd += [
@@ -504,6 +512,11 @@ class StreamManager:
             with_video=meta.get("with_video", False),
             start_offset=meta.get("start_offset", 0.0),
             extra_headers=meta.get("extra_headers") or None,
+            media_kind=meta.get("media_kind", "unknown"),
+            has_audio=meta.get("has_audio"),
+            has_video=meta.get("has_video"),
+            source_type=meta.get("source_type", ""),
+            force_video_for_audio=bool(meta.get("force_video_for_audio", False)),
         )
         logger.info(
             "FFmpeg start stream=%s source_idx=%s vol=%.2f br=%s",
@@ -517,6 +530,7 @@ class StreamManager:
                 preexec_fn=os.setsid if os.name != "nt" else None,
             )
             self.processes[stream_id] = process
+            meta["pid"] = process.pid
             meta["last_start"] = time.time()
             meta["restarts"] = meta.get("restarts", 0)
             meta["last_error"] = ""
@@ -879,6 +893,12 @@ class StreamManager:
         sources: Optional[List[str]] = None,
         start_offset: float = 0.0,
         extra_headers: Optional[dict] = None,
+        media_kind: str = "unknown",
+        has_audio: Optional[bool] = None,
+        has_video: Optional[bool] = None,
+        source_type: str = "",
+        probe_result: Optional[dict] = None,
+        force_video_for_audio: bool = False,
     ) -> Optional[int]:
         """Start one stream without stopping other active streams.
 
@@ -904,6 +924,11 @@ class StreamManager:
                 "audio_bitrate": audio_bitrate,
                 "volume": volume,
                 "with_video": with_video,
+                "media_kind": media_kind or (probe_result or {}).get("media_kind") or "unknown",
+                "has_audio": has_audio if has_audio is not None else (probe_result or {}).get("has_audio"),
+                "has_video": has_video if has_video is not None else (probe_result or {}).get("has_video"),
+                "source_type": source_type or (probe_result or {}).get("source_type") or "",
+                "force_video_for_audio": bool(force_video_for_audio),
                 "start_offset": float(start_offset or 0),
                 "extra_headers": extra_headers or {},
                 "watchdog": True,
@@ -916,6 +941,15 @@ class StreamManager:
                 "muted": False,
                 "volume_before_mute": volume,
                 "codec_info": f"AAC {audio_bitrate} · 48kHz Stereo",
+                "quality": (probe_result or {}).get("quality"),
+                "resolution": (probe_result or {}).get("quality"),
+                "fps": (probe_result or {}).get("fps"),
+                "audio_codec": (probe_result or {}).get("audio_codec") or (probe_result or {}).get("codec"),
+                "sample_rate": (probe_result or {}).get("sample_rate") or "48kHz",
+                "channels": (probe_result or {}).get("channels") or "Stereo",
+                "bitrate": (probe_result or {}).get("bitrate") or audio_bitrate,
+                "pid": None,
+                "reconnect_count": 0,
             }
             pid = self._spawn(stream_id)
             if not pid:
@@ -964,6 +998,11 @@ class StreamManager:
             stream_id, source, rtmp, br, vol, wv,
             sources=sources, start_offset=offset,
             extra_headers=meta.get("extra_headers") or None,
+            media_kind=meta.get("media_kind", "unknown"),
+            has_audio=meta.get("has_audio"),
+            has_video=meta.get("has_video"),
+            source_type=meta.get("source_type", ""),
+            force_video_for_audio=bool(meta.get("force_video_for_audio", False)),
         )
 
     def set_volume(self, stream_id: int, volume: float) -> bool:

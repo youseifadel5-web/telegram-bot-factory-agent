@@ -83,6 +83,11 @@ async def stream_start_callback(update: Update, context: ContextTypes.DEFAULT_TY
             audio_bitrate=s.get("audio_bitrate") or "128k",
             volume=float(s.get("volume") or 1.0),
             with_video=use_video,
+            media_kind=probe.get("media_kind") or ("video" if use_video else "audio"),
+            has_audio=probe.get("has_audio"),
+            has_video=probe.get("has_video"),
+            source_type=probe.get("source_type") or "",
+            probe_result=probe,
         )
         if pid:
             await db.update_stream_status(stream_id, "running", pid)

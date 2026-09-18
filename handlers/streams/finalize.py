@@ -238,6 +238,11 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     start_offset=start_offset,
                     with_video=use_video,
                     extra_headers=extra_hdr,
+                    media_kind=probe.get("media_kind") or ("video" if use_video else "audio"),
+                    has_audio=probe.get("has_audio"),
+                    has_video=probe.get("has_video"),
+                    source_type=probe.get("source_type") or "",
+                    probe_result=probe,
                 )
 
                 import asyncio as _asyncio
@@ -261,6 +266,11 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         start_offset=start_offset,
                         with_video=True,
                         extra_headers=extra_hdr,
+                        media_kind="video",
+                        has_audio=probe.get("has_audio"),
+                        has_video=True,
+                        source_type=probe.get("source_type") or "",
+                        probe_result=probe,
                     )
                     await _asyncio.sleep(5.0)
                 # ON AIR فقط لو healthy؛ لو شغال لسه بدون healthy → أصفر

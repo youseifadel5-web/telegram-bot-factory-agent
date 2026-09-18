@@ -112,6 +112,7 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
                 rtmp_ok=healthy,
                 source_ok=bool(meta.get("data_flow") or healthy),
                 codec_info=meta.get("codec_info", f"AAC {meta.get('audio_bitrate', '128k')} · 48kHz Stereo"),
+                meta=meta,
             )
             can_control = (target.get("user_id") == user_id or is_admin(user_id, ADMIN_ID))
             await msg.reply_text(
@@ -237,6 +238,7 @@ async def stream_status_callback(update: Update, context: ContextTypes.DEFAULT_T
             source_ok=bool(meta.get("data_flow")),
             codec_info=meta.get("codec_info", f"AAC {meta.get('audio_bitrate', '128k')} · 48kHz Stereo"),
             quality=_quality_label(meta),
+            meta=meta,
         )
         await safe_edit_message(
             query,
@@ -303,6 +305,7 @@ async def _ensure_auto_refresh(context, chat_id: int, message_id: int, stream_id
                     source_ok=bool(meta.get("data_flow")),
                     codec_info=meta.get("codec_info", f"AAC {meta.get('audio_bitrate', '128k')} · 48kHz Stereo"),
                     quality=_quality_label(meta),
+                    meta=meta,
                 )
                 try:
                     await context.bot.edit_message_text(

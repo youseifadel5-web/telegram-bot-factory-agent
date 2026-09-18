@@ -18,7 +18,7 @@ def current_streams_keyboard(streams: List[Dict]) -> InlineKeyboardMarkup:
         buttons.append([
             InlineKeyboardButton(
                 f"{status_emoji} {title}",
-                callback_data=f"stream_view_{s['id']}"
+                callback_data=f"stream_status:{s['id']}"
             )
         ])
     if not buttons:
@@ -34,11 +34,11 @@ def stream_control_keyboard(stream_id: int, is_running: bool) -> InlineKeyboardM
     buttons = []
     if is_running:
         buttons.append([
-            InlineKeyboardButton("⏹ إيقاف البث", callback_data=f"stream_stop_{stream_id}")
+            InlineKeyboardButton("⏹ إيقاف البث", callback_data=f"stream_stop:{stream_id}")
         ])
     else:
         buttons.append([
-            InlineKeyboardButton("▶️ إعادة تشغيل", callback_data=f"stream_restart_{stream_id}")
+            InlineKeyboardButton("▶️ إعادة تشغيل", callback_data=f"stream_restart:{stream_id}")
         ])
     buttons.append([
         InlineKeyboardButton("🔙 رجوع", callback_data="current_stream")
