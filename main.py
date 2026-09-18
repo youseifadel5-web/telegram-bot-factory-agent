@@ -344,6 +344,17 @@ async def post_init(app: Application):
         n,
         ADMIN_ID or "?",
     )
+    if ADMIN_ID:
+        try:
+            await app.bot.send_message(
+                ADMIN_ID,
+                "🟢 <b>تم تشغيل Youseif Stream Bot بنجاح</b>\n"
+                f"FFmpeg: {'✅ جاهز' if has_ff else '⚠️ غير متاح'}\n"
+                "البوت جاهز لاستقبال الأوامر.",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.warning("startup admin notification failed: %s", e)
     # Notify users in the background; startup must not wait on up to 200 API calls.
     async def _notify_startup_users():
         try:

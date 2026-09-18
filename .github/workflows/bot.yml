@@ -74,10 +74,21 @@ jobs:
         # workflow run from occupying a runner for the whole service lifetime.
         run: |
           set +e
-          timeout --signal=TERM 45s python main.py
+          timeout --signal=TERM 45s ./start.sh
           code=$?
           if [ "$code" -eq 124 ] || [ "$code" -eq 143 ]; then
             echo "Bot startup smoke test completed (timeout is expected)."
             exit 0
           fi
           exit "$code"
+
+      - name: Cleanup bot processes
+        if: always()
+        run: |
+          for pattern in "$GITHUB_WORKSPACE/main.py" "$GITHUB_WORKSPACE/boot.py" "$GITHUB_WORKSPACE/bin/ffmpeg"; do
+            while read -r pid; do
+              [ -n "$pid" ] || continue
+              [ "$pid" = "$$" ] && continue
+              kill -TERM "$pid" 2>/dev/null || true
+            done < <(pgrep -f "$pattern" || true)
+          done
