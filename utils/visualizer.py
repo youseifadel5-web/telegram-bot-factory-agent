@@ -108,6 +108,7 @@ def build_live_panel(
         f"📊 Bitrate: <code>{html.escape(real_br)}</code>\n"
         f"⚡ Speed: <code>{html.escape(speed)}</code>\n"
         f"🧮 Frames: <code>{html.escape(frames_text)}</code>\n"
+        f"🔊 مستوى الصوت: <code>{html.escape(str(min(200, max(0, int(round(float(volume or 1.0) * 100))))))}%</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📡 حالة الاتصال:\n"
         f"{st(ffmpeg_ok, 'FFmpeg')} · {st(rtmp_ok and data_flow, 'Output / RTMP')} · {st(source_ok and data_flow, 'المصدر')}\n"

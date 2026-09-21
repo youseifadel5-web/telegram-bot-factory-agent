@@ -9,40 +9,17 @@ import subprocess
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse, quote, unquote, urlunparse
 
+from services.url_normalizer import (
+    clean_url,
+    sanitize_url_for_ffmpeg,
+    extract_wrapped_url,
+)
+
 logger = logging.getLogger(__name__)
 
-# Characters that break FFmpeg / subprocess when left raw in URLs
-_BAD_URL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
-
-
-def clean_url(url: str) -> str:
-    """Strip whitespace, control chars, angle brackets; keep valid URI form."""
-    if not url:
-        return ""
-    u = str(url).strip().strip("<>\"'")
-    u = _BAD_URL_CHARS.sub("", u)
-    # collapse internal whitespace (common paste error)
-    u = re.sub(r"\s+", "", u)
-    # Fix accidental double schemes
-    u = re.sub(r"^(https?://)+", lambda m: "https://" if "https" in m.group(0) else "http://", u, flags=re.I)
-    return u
-
-
-def sanitize_url_for_ffmpeg(url: str) -> str:
-    """Return a URL safe for FFmpeg -i argument (no invalid characters)."""
-    u = clean_url(url)
-    if not u:
-        return u
-    try:
-        parsed = urlparse(u)
-        # Re-encode path/query carefully without double-encoding
-        path = quote(unquote(parsed.path), safe="/:@!$&'()*+,;=-._~")
-        query = quote(unquote(parsed.query), safe="=&%:@!$&'()*+,;=-._~")
-        # Fragments (for example #t=timestamp) are client-side metadata and
-        # are not part of an FFmpeg HTTP input URL.
-        return urlunparse((parsed.scheme, parsed.netloc, path, parsed.params, query, ""))
-    except Exception:
-        return u
+# NOTE: clean_url / sanitize_url_for_ffmpeg now live in services/url_normalizer.py
+# (the single URL-truth layer) and are re-exported here for backward compatibility.
+# All legacy `from services.source_probe import clean_url` imports keep working.
 
 
 
@@ -167,6 +144,48 @@ def _supports_ffmpeg_option(ffmpeg: Optional[str], option: str) -> bool:
         return False
 
 
+def _fetch_master_variants(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 8) -> Dict[str, Any]:
+    """Fetch a (small) HLS playlist and parse master variants. Sync, bounded."""
+    try:
+        from services.media.hls_detector import parse_m3u8_text
+    except Exception:
+        return {}
+    if not url.lower().startswith(("http://", "https://")):
+        return {}
+    try:
+        import urllib.request
+        req_headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity",
+        }
+        if headers:
+            req_headers.update({str(k): str(v) for k, v in headers.items() if k.lower() != "accept-encoding"})
+        req = urllib.request.Request(url, headers=req_headers, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read(512 * 1024)
+            final_url = str(getattr(resp, "url", url) or url)
+        text = raw.decode("utf-8", errors="ignore")
+        if not text.lstrip().startswith("#EXTM3U"):
+            return {}
+        info = parse_m3u8_text(text, base_url=final_url)
+        variants = []
+        for v in sorted(info.variants, key=lambda x: x.bandwidth):
+            variants.append({
+                "quality": v.quality_label or (f"{v.height}p" if v.height else ""),
+                "width": v.width,
+                "height": v.height,
+                "bandwidth": v.bandwidth,
+                "fps": v.frame_rate or None,
+                "codecs": v.codecs or "",
+                "url": v.uri,
+            })
+        return {"is_master": info.is_master, "variants": variants}
+    except Exception as e:
+        logger.debug("_fetch_master_variants: %s", e)
+        return {}
+
+
 def probe_source(
     url: str,
     timeout: int = 35,
@@ -180,32 +199,44 @@ def probe_source(
         "ok": False,
         "error": None,
         "solution": None,
+        # Unified probe schema (new) — kept alongside legacy keys
+        "url": url,
+        "clean_url": "",
+        "media_kind": "video",
         "has_audio": False,
         "has_video": False,
-        "media_kind": "video",
+        "is_hls": False,
+        "is_master_playlist": False,
+        "variants": [],
+        "width": None,
+        "height": None,
+        "fps": None,
+        "video_codec": None,
+        "audio_codec": None,
+        "bitrate": None,
+        "content_type": "",
+        "headers": dict(headers or {}),
+        "cloudflare": False,
+        # Legacy keys (must not disappear)
         "source_type": "HTTP Stream",
         "duration": None,
         "size": None,
         "quality": None,
         "format": None,
         "codec": None,
-        "bitrate": None,
-        "audio_codec": None,
-        "video_codec": None,
         "sample_rate": None,
         "channels": None,
-        "fps": None,
         "cleaned_url": "",
         "ffmpeg_ready": bool(_ffmpeg_bin()),
         "note": None,
-        "is_hls": False,
-        "content_type": "",
         "resolved_url": "",
     }
 
     raw = url
     try:
+        # URL normalization: unwrap ?url=/?src=/... wrappers, then sanitize
         url = clean_url(url)
+        url = extract_wrapped_url(url)
         url = sanitize_url_for_ffmpeg(url)
     except Exception as e:
         result["error"] = f"رابط غير صالح: {e}"
@@ -213,7 +244,33 @@ def probe_source(
         return result
 
     result["cleaned_url"] = url
+    result["clean_url"] = url
+    result["url"] = raw
     result["source_type"] = detect_source_type(url)
+
+    # SSRF FIRST — a private/metadata URL must never be sniffed or probed.
+    if url.startswith(("http://", "https://", "rtmp://", "rtmps://")):
+        try:
+            from services.security.ssrf import assert_safe_url
+            assert_safe_url(url)
+        except ValueError:
+            result["error"] = "الرابط محظور لأسباب أمنية (SSRF)"
+            result["solution"] = "استخدم رابطاً عاماً وليس عنواناً داخلياً"
+            return result
+        except Exception:
+            pass
+
+    # Cloudflare / R2 / Workers detection — affects header hints only,
+    # it NEVER changes the FFmpeg command by itself (validation first).
+    try:
+        _host = urlparse(url).netloc.lower()
+        result["cloudflare"] = any(
+            d in _host for d in ("cloudflare", "r2.dev", "r2.cloudflarestorage.com", "workers.dev")
+        )
+        if result["cloudflare"] and result["source_type"] == "HTTP Stream":
+            result["source_type"] = "Cloudflare / R2"
+    except Exception:
+        pass
 
     # Detect HLS/audio from content even when the URL extension is misleading.
     if url.startswith(("http://", "https://")):
@@ -228,22 +285,23 @@ def probe_source(
             result["source_type"] = "Radio / Audio Stream"
             result["media_kind"] = "audio"
 
+    # HLS master playlist variant discovery (resolutions/bandwidth/codecs).
+    # Runs even when the extension is misleading — sniff already confirmed HLS.
+    if result.get("is_hls") or ".m3u8" in url.lower():
+        try:
+            _m = _fetch_master_variants(url, headers=headers, timeout=min(8, timeout))
+            if _m:
+                result["is_master_playlist"] = _m.get("is_master", False)
+                result["variants"] = _m.get("variants") or []
+        except Exception as e:
+            logger.debug("master variants: %s", e)
+
     if not url:
         result["error"] = "الرابط فارغ"
         result["solution"] = "أرسل رابط مصدر صحيح"
         return result
 
-    # SSRF: never probe internal/metadata hosts
-    if url.startswith(("http://", "https://", "rtmp://", "rtmps://")):
-        try:
-            from services.security.ssrf import assert_safe_url
-            assert_safe_url(url)
-        except ValueError:
-            result["error"] = "الرابط محظور لأسباب أمنية (SSRF)"
-            result["solution"] = "استخدم رابطاً عاماً وليس عنواناً داخلياً"
-            return result
-        except Exception:
-            pass
+    # (second SSRF pass for URL-local paths kept below; networked URLs already validated)
 
     # Google Drive
     is_drive = "drive.google.com" in url.lower() or "docs.google.com" in url.lower()
@@ -383,6 +441,7 @@ def probe_source(
                             pass
                     w, h = v.get("width"), v.get("height")
                     if w and h:
+                        result["width"], result["height"] = int(w), int(h)
                         result["quality"] = f"{w}x{h}"
                         if h >= 1080:
                             result["quality"] = f"1080p ({w}x{h})"
@@ -536,6 +595,10 @@ def format_probe_panel(probe: Dict[str, Any], source_url: str = "") -> str:
         "",
         f"📡 <b>نوع المصدر:</b> {src_type}",
         f"🎞 <b>النوع:</b> {kind_label}",
+        *([
+            f"📺 <b>Master Playlist:</b> {len(probe.get('variants') or [])} جودة — "
+            + " · ".join(filter(None, [str((v or {}).get('quality') or '') for v in (probe.get('variants') or [])[:5]]))
+        ] if probe.get("is_master_playlist") else []),
         f"📦 <b>الحجم:</b> {size}",
         f"⏱ <b>المدة:</b> {dur}",
         f"📶 <b>الجودة:</b> {quality}",
@@ -594,3 +657,52 @@ def looks_like_video(url: str) -> bool:
 
 def looks_like_audio(url: str) -> bool:
     return detect_media_kind(url) == "audio"
+
+
+# --------------------------------------------------------------------------- #
+# Async probe + global probe concurrency limit (MAX_PROBES / semaphore)
+# --------------------------------------------------------------------------- #
+import asyncio as _asyncio
+
+_probe_semaphore: Optional["_asyncio.Semaphore"] = None
+
+
+def _get_probe_semaphore():
+    global _probe_semaphore
+    if _probe_semaphore is None:
+        try:
+            from config import MAX_PROBES as _MP
+            _probe_semaphore = _asyncio.Semaphore(max(1, int(_MP or 5)))
+        except Exception:
+            _probe_semaphore = _asyncio.Semaphore(5)
+    return _probe_semaphore
+
+
+async def probe_source_async(
+    url: str,
+    timeout: int = 35,
+    headers: Optional[Dict[str, str]] = None,
+    quality: str = "best",
+) -> Dict[str, Any]:
+    """Async probe (executor + semaphore) — never blocks the event loop."""
+    async with _get_probe_semaphore():
+        return await _asyncio.to_thread(probe_source, url, timeout, headers)
+
+
+def resolve_source_mode(user_mode: str, probe: Optional[Dict[str, Any]] = None, url: str = "") -> str:
+    """Deterministic Source Mode (video/audio/auto) resolution.
+
+    Never a blind 'video' fallback: when the probe is inconclusive, URL
+    heuristics (radio/quran hosts, audio extensions) decide.
+    """
+    um = str(user_mode or "auto").lower().strip()
+    if um in ("video", "audio"):
+        return um
+    p = probe or {}
+    hv, ha = p.get("has_video"), p.get("has_audio")
+    if hv is True:
+        return "video"
+    if hv is False and ha is True:
+        return "audio"
+    kind = detect_media_kind(url or str(p.get("cleaned_url") or ""), p)
+    return kind if kind in ("audio", "video") else "video"

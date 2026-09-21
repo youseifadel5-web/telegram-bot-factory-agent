@@ -56,6 +56,7 @@ from .control import (
     stream_vol_down_callback,
     stream_mute_callback,
     stream_br_callback,
+    stream_clone_callback,
 )
 
 from .playlist import (
@@ -75,6 +76,8 @@ from .stations import (
     station_rtmp_key_receive,
     stream_history_callback,
     stream_fav_callback,
+    stream_logs_callback,
+    stream_stats_callback,
 )
 
 __all__ = [
@@ -92,6 +95,7 @@ __all__ = [
     "rtmp_use_saved_callback", "rtmp_change_callback", "rtmp_skip_callback",
     "probe_continue_callback", "probe_retry_callback", "cancel_all_status_tasks",
     "stream_history_callback", "stream_fav_callback",
+    "stream_logs_callback", "stream_stats_callback", "stream_clone_callback",
     "stream_new_from_text",
     "finalize_stream", "_finalize_stream",
 ]

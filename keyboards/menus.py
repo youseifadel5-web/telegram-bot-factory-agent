@@ -222,6 +222,8 @@ def file_actions_keyboard(file_id: int, is_admin: bool = False) -> InlineKeyboar
 
 
 def stream_actions_keyboard(stream_id: int, is_running: bool, can_control: bool = True) -> InlineKeyboardMarkup:
+    """Rich control panel — legacy V6 ecosystem (logs/stats/clone/fav) merged
+    with the current playlist/volume/bitrate controls. Nothing removed."""
     sid = stream_id
     if not can_control:
         return InlineKeyboardMarkup([
@@ -237,6 +239,14 @@ def stream_actions_keyboard(stream_id: int, is_running: bool, can_control: bool 
     )
     buttons = [
         control_row,
+        [
+            InlineKeyboardButton("📜 سجلات", callback_data=f"stream_logs:{sid}"),
+            InlineKeyboardButton("📈 إحصائيات", callback_data=f"stream_stats:{sid}"),
+        ],
+        [
+            InlineKeyboardButton("📋 استنساخ", callback_data=f"stream_clone:{sid}"),
+            InlineKeyboardButton("⭐ مفضلة", callback_data=f"stream_fav:{sid}"),
+        ],
         [
             InlineKeyboardButton("⬅️ السابق", callback_data=f"pl_prev:{sid}"),
             InlineKeyboardButton("📃 القائمة", callback_data=f"pl_view:{sid}"),

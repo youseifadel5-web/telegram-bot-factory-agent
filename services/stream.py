@@ -31,6 +31,31 @@ from config import FFMPEG_PATH, MAX_STREAMS
 
 logger = logging.getLogger(__name__)
 
+# --------------------------------------------------------------------------- #
+# DB log bridge (stream_logs) — watchdogs run in threads; events are forwarded
+# to the asyncio loop main.py registers at startup. Never raises.
+# --------------------------------------------------------------------------- #
+_LOG_LOOP = None
+
+
+def set_logging_loop(loop):
+    global _LOG_LOOP
+    _LOG_LOOP = loop
+
+
+def log_stream_event(stream_id: int, event: str, message: str = "", user_id: int = None):
+    try:
+        if _LOG_LOOP is not None and _LOG_LOOP.is_running():
+            import asyncio as _aio
+            from database import db as _db
+            _aio.run_coroutine_threadsafe(
+                _db.add_stream_log(int(stream_id), int(user_id or 0), event, str(message)[:500]),
+                _LOG_LOOP,
+            )
+    except Exception:
+        pass
+
+
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_FFMPEG_DIR = ROOT / "bin"
 LOCAL_FFMPEG = LOCAL_FFMPEG_DIR / "ffmpeg"
@@ -38,13 +63,21 @@ FFMPEG_STATIC_URL = (
     "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
 )
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, "") or default))
+    except Exception:
+        return default
+
+
 # After this many seconds of a running ffmpeg process with NO progress
 # (out_time not advancing), we consider audio "stalled" and force a restart.
-STALL_TIMEOUT = 45
+# All limits are configurable via .env (never hardcoded only).
+STALL_TIMEOUT = _env_int("STALL_TIMEOUT", 45)
 # Seconds of continuous, advancing progress before we call it healthy / ON AIR.
-HEALTHY_AFTER = 8
+HEALTHY_AFTER = _env_int("HEALTHY_AFTER", 8)
 # Consecutive failed connect attempts on one source before failing over.
-MAX_FAILS_BEFORE_FAILOVER = 3
+MAX_FAILS_BEFORE_FAILOVER = _env_int("MAX_FAILS_BEFORE_FAILOVER", 3)
 
 _FFMPEG_OPTION_CACHE: Dict[tuple, bool] = {}
 
@@ -237,6 +270,7 @@ def build_ffmpeg_cmd(
     has_video: Optional[bool] = None,
     source_type: str = "",
     force_video_for_audio: bool = False,
+    quality_profile=None,
 ) -> list:
     """Build a robust FFmpeg command for Telegram RTMPS / FLV live ingest.
 
@@ -261,9 +295,18 @@ def build_ffmpeg_cmd(
         af_parts.insert(0, vol_filter)
     af = ",".join(af_parts)
 
+    # Central quality profile (quality_manager) — handlers never hardcode args.
+    prof = quality_profile
+    if prof is not None and audio_bitrate in (None, "", "128k"):
+        ab = getattr(prof, "audio_bitrate", None)
+        if ab:
+            audio_bitrate = ab
+    max_w = int(getattr(prof, "width", 0) or 0) or 1280
+    max_h = int(getattr(prof, "height", 0) or 0) or 720
+
     # Even dimensions + cap resolution for stable RTMP ingest
     vf_scale = (
-        "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease,"
+        f"scale='min({max_w},iw)':'min({max_h},ih)':force_original_aspect_ratio=decrease,"
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
         "setsar=1"
     )
@@ -357,6 +400,7 @@ def build_ffmpeg_cmd(
     effective_video = bool(with_video or has_video) and not audio_only
     if audio_only and force_video_for_audio:
         effective_video = True
+    canvas = audio_only and force_video_for_audio
 
     # Live inputs must not be artificially throttled with -re. VOD/files may use it.
     is_live = any(x in (source_type or "").lower() for x in ("hls", "m3u8", "live", "rtmp", "radio", "iptv"))
@@ -381,17 +425,28 @@ def build_ffmpeg_cmd(
     ]
 
     if effective_video:
+        if canvas:
+            # Audio-only source forced into an RTMP that requires a video
+            # track: tiny low-CPU black canvas (lavfi) — no heavy encode.
+            cmd += ["-f", "lavfi", "-i", "color=c=black:s=320x180:r=5"]
         vcodec_block = [
-            "-map", "0:v:0?",
+            "-map", "1:v:0" if canvas else "0:v:0?",
         ]
         if has_audio is not False:
             vcodec_block += ["-map", "0:a:0?"]
         vcodec_block += ["-c:v", v_encoder]
         if x264_style:
             vcodec_block += ["-preset", "veryfast", "-tune", "zerolatency"]
+        if canvas:
+            v_b, v_mr, v_bs, out_fps = "150k", "200k", "300k", "10"
+        else:
+            v_b = getattr(prof, "video_bitrate", None) or "1000k"
+            v_mr = getattr(prof, "maxrate_v", None) or "1200k"
+            v_bs = getattr(prof, "bufsize_v", None) or "2000k"
+            out_fps = "25"
         vcodec_block += [
-            "-b:v", "1000k", "-maxrate", "1200k", "-bufsize", "2000k",
-            "-pix_fmt", "yuv420p", "-r", "25", "-vf", vf_scale,
+            "-b:v", v_b, "-maxrate", v_mr, "-bufsize", v_bs,
+            "-pix_fmt", "yuv420p", "-r", out_fps, "-vf", vf_scale,
         ]
         if has_audio is not False:
             vcodec_block += [
@@ -503,10 +558,18 @@ class StreamManager:
         if not meta:
             return None
         source = _validate_source_url(self._current_source(meta))
+        try:
+            from services.quality_manager import resolve_for_source
+            _prof = resolve_for_source(
+                str(meta.get("quality") or "auto"), None, str(meta.get("media_kind") or "video")
+            )
+        except Exception:
+            _prof = None
         cmd = build_ffmpeg_cmd(
             self.ffmpeg,
             source,
             meta["rtmp"],
+            quality_profile=_prof,
             audio_bitrate=meta.get("audio_bitrate", "128k"),
             volume=meta.get("volume", 1.0),
             with_video=meta.get("with_video", False),
@@ -571,6 +634,7 @@ class StreamManager:
                 except Exception:
                     pass
                 return None
+            log_stream_event(stream_id, "rtmp_start", f"FFmpeg spawned pid={process.pid}")
             return process.pid
         except Exception as e:
             logger.error("spawn failed: %s", e)
@@ -758,6 +822,7 @@ class StreamManager:
             if data_flow and not stalled:
                 if not meta.get("healthy"):
                     logger.info("Stream %s healthy: FFmpeg output is advancing", stream_id)
+                    log_stream_event(stream_id, "on_air", "تأكيد تدفق البيانات (ON AIR)")
                 meta["healthy"] = True
                 meta["state"] = "on_air"
                 meta["fail_count"] = 0
@@ -795,6 +860,7 @@ class StreamManager:
                 pass
         self.processes.pop(stream_id, None)
         meta["fail_count"] = meta.get("fail_count", 0) + 1
+        log_stream_event(stream_id, "reconnecting", str(meta.get("last_error") or "process died"))
         self._maybe_failover(stream_id, meta)
 
     def _maybe_failover(self, stream_id: int, meta: dict):
@@ -852,6 +918,7 @@ class StreamManager:
             meta["state"] = FAILED if isinstance(FAILED, str) else "error"
             meta["watchdog"] = False
             meta["last_error"] = last_err or "خطأ دائم في المصدر (403/404) — توقف إعادة التشغيل"
+            log_stream_event(stream_id, "failed", meta["last_error"])
             logger.error("Stream %s: permanent source error, not restarting: %s", stream_id, last_err[:120])
             return
         if server_err and restarts >= 3:
@@ -877,6 +944,8 @@ class StreamManager:
         if not meta or not meta.get("watchdog"):
             return
         meta["restarts"] = restarts + 1
+        meta["reconnect_count"] = meta.get("reconnect_count", 0) + 1
+        log_stream_event(stream_id, "reconnecting", f"restart attempt {restarts + 1}/{MAX_RESTARTS}")
         pid = self._spawn(stream_id)
         if not pid:
             meta["state"] = FAILED if isinstance(FAILED, str) else "error"
@@ -899,6 +968,9 @@ class StreamManager:
         source_type: str = "",
         probe_result: Optional[dict] = None,
         force_video_for_audio: bool = False,
+        quality: str = "auto",
+        source_mode: str = "auto",
+        user_id: Optional[int] = None,
     ) -> Optional[int]:
         """Start one stream without stopping other active streams.
 
@@ -941,7 +1013,7 @@ class StreamManager:
                 "muted": False,
                 "volume_before_mute": volume,
                 "codec_info": f"AAC {audio_bitrate} · 48kHz Stereo",
-                "quality": (probe_result or {}).get("quality"),
+                "quality": quality or (probe_result or {}).get("quality") or "auto",
                 "resolution": (probe_result or {}).get("quality"),
                 "fps": (probe_result or {}).get("fps"),
                 "audio_codec": (probe_result or {}).get("audio_codec") or (probe_result or {}).get("codec"),
@@ -950,6 +1022,8 @@ class StreamManager:
                 "bitrate": (probe_result or {}).get("bitrate") or audio_bitrate,
                 "pid": None,
                 "reconnect_count": 0,
+                "source_mode": source_mode or "auto",
+                "user_id": user_id,
             }
             pid = self._spawn(stream_id)
             if not pid:
@@ -975,6 +1049,7 @@ class StreamManager:
         self._meta.pop(stream_id, None)
         if process:
             self._kill_proc(process)
+            log_stream_event(stream_id, "stopped", "تم إيقاف البث")
             logger.info("Stopped stream %s", stream_id)
             return True
         return False
@@ -1003,6 +1078,9 @@ class StreamManager:
             has_video=meta.get("has_video"),
             source_type=meta.get("source_type", ""),
             force_video_for_audio=bool(meta.get("force_video_for_audio", False)),
+            quality=meta.get("quality") or "auto",
+            source_mode=meta.get("source_mode") or "auto",
+            user_id=meta.get("user_id"),
         )
 
     def set_volume(self, stream_id: int, volume: float) -> bool:
@@ -1063,7 +1141,18 @@ class StreamManager:
         return "stopped"
 
     def get_meta(self, stream_id: int) -> Dict:
-        return dict(self._meta.get(stream_id) or {})
+        """Copy of metadata safe for UI/panels — RTMP key and header secrets
+        are stripped/masked so they can never leak into Telegram or logs."""
+        meta = dict(self._meta.get(stream_id) or {})
+        meta.pop("rtmp", None)
+        hdrs = meta.get("extra_headers")
+        if isinstance(hdrs, dict):
+            try:
+                from services.secrets import sanitize_headers
+                meta["extra_headers"] = sanitize_headers(hdrs)
+            except Exception:
+                meta.pop("extra_headers", None)
+        return meta
 
     def get_pid(self, stream_id: int) -> Optional[int]:
         p = self.processes.get(stream_id)

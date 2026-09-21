@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from database import db
 from services.stream import stream_manager
 from keyboards.menus import stream_actions_keyboard, cancel_keyboard, main_menu, main_reply_keyboard
-from utils.helpers import is_admin, safe_edit_message, clear_workflow_state
+from utils.helpers import is_admin, safe_edit_message, clear_workflow_state, stream_uptime
 from config import ADMIN_ID
 from services import stations as stations_service
 
@@ -235,14 +235,42 @@ async def stream_history_callback(update: Update, context: ContextTypes.DEFAULT_
     else:
         body = f"📜 <b>سجل البثوث</b> — صفحة {page}/{pages}\n\n"
         buttons = []
+        from keyboards.stream import stream_list_button_text
         for s in chunk:
             sid = s.get("id")
             title = html.escape(str(s.get("title") or "بث")[:36])
             status = str(s.get("status") or "")
-            icon = "🟢" if status == "running" else "🔴"
-            body += f"{icon} #{sid} {title}\n"
+            try:
+                sid_i = int(sid or 0)
+                live_now = stream_manager.is_running(sid_i)
+                healthy = stream_manager.is_healthy(sid_i) if live_now else False
+                state = stream_manager.get_state(sid_i) if sid_i else "stopped"
+                up = stream_uptime(s.get("started_at")) if (status == "running" and live_now) else "—"
+            except Exception:
+                live_now = False
+                healthy = False
+                state = status or "stopped"
+                up = "—"
+            if healthy:
+                icon = "🟢"
+            elif live_now:
+                icon = "🟡"
+            else:
+                icon = "🔴"
+            body += f"{icon} <b>#{sid}</b> {title}\n"
+            body += f"⏱ {up} · {('ON AIR' if healthy else ('يعمل' if live_now else 'متوقف'))}\n"
+            # One rich button (≤64 chars) + favorite — opens same Live Panel
+            btn_text = stream_list_button_text(
+                int(sid or 0),
+                s.get("title"),
+                status=status,
+                running=live_now,
+                healthy=healthy,
+                state=state,
+                uptime=up if live_now else "—",
+            )
             buttons.append([
-                InlineKeyboardButton(f"▶ #{sid}", callback_data=f"stream_status:{sid}"),
+                InlineKeyboardButton(btn_text, callback_data=f"stream_status:{sid}"),
                 InlineKeyboardButton("⭐", callback_data=f"stream_fav:{sid}"),
             ])
         nav = []
@@ -297,3 +325,89 @@ async def stream_fav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             await q.answer("تعذر الإضافة", show_alert=True)
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------- #
+# Logs & Statistics panels (restored legacy V6/CLASSIC_IRON callbacks)
+# --------------------------------------------------------------------------- #
+_LOG_ICONS = {
+    "started": "🟢", "on_air": "🟢", "rtmp_start": "🟢", "source_connected": "🟢",
+    "stopped": "⏹", "failed": "🔴", "probe_fail": "🔴", "start_fail": "🔴",
+    "reconnecting": "⚠️", "cloned": "📋", "created": "✨",
+}
+
+
+async def stream_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    try:
+        sid = int((query.data or "").split(":")[1])
+        s = await db.get_stream(sid)
+        if not s or (s.get("user_id") != query.from_user.id and not is_admin(query.from_user.id, ADMIN_ID)):
+            try:
+                await query.answer("غير مسموح", show_alert=True)
+            except Exception:
+                pass
+            return
+        logs = await db.get_stream_logs(sid, limit=30) or []
+        lines = [f"📜 <b>سجلات البث #{sid}</b>", "━━━━━━━━━━━━━━"]
+        if not logs:
+            lines.append("لا توجد سجلات بعد.")
+        for item in logs[:30]:
+            ev = str(item.get("event") or "")
+            ts = str(item.get("created_at") or "")[:19]
+            msg = str(item.get("message") or item.get("details") or "")[:120]
+            lines.append(f"<code>{html.escape(ts)}</code> {_LOG_ICONS.get(ev, '•')} {html.escape(ev)}")
+            if msg:
+                lines.append(html.escape(msg))
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📊 الحالة", callback_data=f"stream_status:{sid}"),
+             InlineKeyboardButton("📈 إحصائيات", callback_data=f"stream_stats:{sid}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"stream_status:{sid}")],
+        ])
+        await safe_edit_message(query, "\n".join(lines)[:3900], parse_mode="HTML", reply_markup=kb)
+    except Exception as e:
+        logger.exception("stream_logs: %s", e)
+
+
+async def stream_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    try:
+        sid = int((query.data or "").split(":")[1])
+        s = await db.get_stream(sid)
+        if not s or (s.get("user_id") != query.from_user.id and not is_admin(query.from_user.id, ADMIN_ID)):
+            try:
+                await query.answer("غير مسموح", show_alert=True)
+            except Exception:
+                pass
+            return
+        running = stream_manager.is_running(sid)
+        meta = stream_manager.get_meta(sid) or {}
+        prog = meta.get("progress") or {}
+        stats = [
+            ("⏱ Uptime", stream_uptime(s.get("started_at")) if running else "—"),
+            ("🔄 Restarts", str(meta.get("restarts", s.get("restart_count") or 0))),
+            ("📊 Bitrate", str(prog.get("bitrate_str") or meta.get("bitrate") or "غير متاح")),
+            ("🎞 FPS", str(meta.get("fps") or "غير متاح")),
+            ("🧮 Frames", str(prog.get("frame") or "غير متاح")),
+            ("⚡ Speed", str(prog.get("speed_str") or "غير متاح")),
+            ("🧭 الحالة", str(stream_manager.get_state(sid))),
+            ("📡 المصدر", str(meta.get("source_type") or s.get("source_type") or "—")),
+            ("🆔 PID", str(stream_manager.get_pid(sid) or "—")),
+        ]
+        lines = [f"📈 <b>إحصائيات البث #{sid}</b>", "━━━━━━━━━━━━━━", f"📌 {html.escape(str(s.get('title') or '—'))}", ""]
+        lines += [f"{k}: <code>{html.escape(v)}</code>" for k, v in stats]
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📜 سجلات", callback_data=f"stream_logs:{sid}"),
+             InlineKeyboardButton("🔙 اللوحة", callback_data=f"stream_status:{sid}")],
+        ])
+        await safe_edit_message(query, "\n".join(lines)[:3900], parse_mode="HTML", reply_markup=kb)
+    except Exception as e:
+        logger.exception("stream_stats: %s", e)

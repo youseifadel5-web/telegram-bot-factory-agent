@@ -9,4 +9,3 @@ cryptography>=42.0.0
 
 # Optional but recommended
 pyrogram==2.0.106
-tgcrypto==1.2.5

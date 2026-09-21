@@ -124,6 +124,7 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
 
         text = "📡 <b>البث الحالي</b>\n\n"
         buttons = []
+        from keyboards.stream import stream_list_button_text
         for s in streams[:10]:
             try:
                 sid = int(s.get("id"))
@@ -139,10 +140,19 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
                         pass
                 if healthy:
                     icon = "🟢"
-                elif running or state == "reconnecting":
+                    state_ar = "ON AIR"
+                elif running or state in ("reconnecting", "restarting", "connecting", "starting"):
                     icon = "🟡"
+                    state_ar = (
+                        "جاري الاتصال" if state in ("connecting", "starting")
+                        else ("إعادة اتصال" if state == "reconnecting" else "يعمل")
+                    )
+                elif state == "stalled":
+                    icon = "🟠"
+                    state_ar = "متوقف مؤقتاً"
                 else:
                     icon = "🔴"
+                    state_ar = "فشل" if state in ("failed", "error") else "متوقف"
                 try:
                     uptime = stream_uptime(s.get("started_at")) if running else "—"
                 except Exception:
@@ -151,14 +161,21 @@ async def current_stream_callback(update: Update, context: ContextTypes.DEFAULT_
                 owner_user = await db.get_user(int(owner)) if owner else None
                 owner_name = (owner_user or {}).get("first_name") or (owner_user or {}).get("username") or str(owner or "—")
                 owner_name = html.escape(str(owner_name)[:22])
-                text += f"{icon} <b>Stream #{sid}</b> {title}\n"
-                text += f"الحالة: {icon} {'ON AIR' if healthy else ('جاري' if running else 'متوقف')}\n"
-                text += f"⏱ {uptime} · 👤 {owner_name}\n\n"
+                text += f"{icon} <b>#{sid}</b> {title}\n"
+                text += f"{icon} {state_ar} · ⏱ {uptime}\n"
+                text += f"👤 {owner_name}\n\n"
+                # Button text ≤64 chars (Telegram limit)
+                btn_text = stream_list_button_text(
+                    sid,
+                    s.get("title"),
+                    status=status,
+                    running=running,
+                    healthy=healthy,
+                    state=state,
+                    uptime=uptime if running else "—",
+                )
                 buttons.append([
-                    InlineKeyboardButton(
-                        f"{icon} #{sid} {str(s.get('title') or 'بث')[:20]}",
-                        callback_data=f"stream_status:{sid}",
-                    )
+                    InlineKeyboardButton(btn_text, callback_data=f"stream_status:{sid}")
                 ])
             except Exception as row_error:
                 logger.warning("Skipping malformed stream row in current_stream: %s", row_error)

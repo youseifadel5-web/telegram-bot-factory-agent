@@ -26,6 +26,16 @@ class HLSVariant:
     frame_rate: float = 0.0
     codecs: str = ""
     name: str = ""
+    width: int = 0
+    height: int = 0
+
+    @property
+    def quality_label(self) -> str:
+        if self.height:
+            return f"{self.height}p"
+        if self.resolution:
+            return self.resolution
+        return ""
 
 
 @dataclass
@@ -111,14 +121,23 @@ def parse_m3u8_text(text: str, base_url: str = "") -> HLSInfo:
                 fr = float(pending_inf.get("FRAME-RATE") or 0)
             except Exception:
                 pass
+            w, h = 0, 0
+            res = pending_inf.get("RESOLUTION") or ""
+            if "x" in res:
+                try:
+                    w, h = (int(x) for x in res.lower().split("x", 1))
+                except Exception:
+                    w = h = 0
             info.variants.append(
                 HLSVariant(
                     uri=uri,
                     bandwidth=bw,
-                    resolution=pending_inf.get("RESOLUTION") or "",
+                    resolution=res,
                     frame_rate=fr,
                     codecs=pending_inf.get("CODECS") or "",
                     name=pending_inf.get("NAME") or "",
+                    width=w,
+                    height=h,
                 )
             )
             pending_inf = None
@@ -141,7 +160,25 @@ def parse_m3u8_text(text: str, base_url: str = "") -> HLSInfo:
         info.raw_type = "media"
     else:
         info.raw_type = "hls"
+    # Canonical order: lowest → highest bandwidth
+    info.variants.sort(key=lambda v: v.bandwidth)
     return info
+
+
+def variant_dicts(info: HLSInfo) -> List[Dict[str, Any]]:
+    """Serialize variants (sorted low→high) into plain dicts for probe results."""
+    return [
+        {
+            "quality": v.quality_label,
+            "width": v.width,
+            "height": v.height,
+            "bandwidth": v.bandwidth,
+            "fps": v.frame_rate or None,
+            "codecs": v.codecs,
+            "url": v.uri,
+        }
+        for v in sorted(info.variants, key=lambda x: x.bandwidth)
+    ]
 
 
 def pick_variant(info: HLSInfo, quality: str = "best") -> Optional[HLSVariant]:

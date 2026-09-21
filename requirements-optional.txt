@@ -1,0 +1,3 @@
+# Optional performance acceleration for Pyrogram file transfers.
+# Requires a C compiler on the target host.
+tgcrypto==1.2.5

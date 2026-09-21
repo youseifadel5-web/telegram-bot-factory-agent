@@ -116,6 +116,11 @@ class Database:
                 logger.info("No database migration runner found; using built-in schema setup.")
         except Exception as e:
             logger.warning("migrations: %s", e)
+        # Idempotent column additions for streams (backward compatible)
+        try:
+            await self._ensure_columns()
+        except Exception as e:
+            logger.warning("ensure columns: %s", e)
         # ensure user_permissions + user_stats
         try:
             await self._conn.executescript("""
@@ -206,6 +211,26 @@ class Database:
         except Exception as e:
             logger.error("db reconnect failed: %s", e)
             return False
+
+    async def _ensure_columns(self):
+        """Idempotent ALTER TABLE for streams — safe to run on every start,
+        never touches or drops existing data."""
+        wanted = {
+            "quality": "TEXT",
+            "media_mode": "TEXT DEFAULT 'auto'",
+            "source_mode": "TEXT DEFAULT 'auto'",
+            "restart_count": "INTEGER DEFAULT 0",
+            "reconnect_count": "INTEGER DEFAULT 0",
+        }
+        cur = await self._conn.execute("PRAGMA table_info(streams)")
+        existing = {r[1] for r in await cur.fetchall()}
+        for col, decl in wanted.items():
+            if col not in existing:
+                await self._conn.execute(f"ALTER TABLE streams ADD COLUMN {col} {decl}")
+        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_streams_user ON streams(user_id)")
+        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_stream_logs_stream ON stream_logs(stream_id)")
+        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id)")
+        await self._conn.commit()
 
     async def _create_tables(self):
         await self._conn.executescript("""
@@ -652,8 +677,15 @@ class Database:
         row = await cur.fetchone()
         return dict(row) if row else None
 
-    async def update_stream_status(self, stream_id, status, pid=None):
+    async def update_stream_status(self, stream_id, status, pid=None, restart_count=None):
         now = datetime.utcnow().isoformat()
+        if restart_count is not None:
+            try:
+                await self._conn.execute(
+                    "UPDATE streams SET restart_count=? WHERE id=?", (int(restart_count), stream_id)
+                )
+            except Exception:
+                pass
         if status == "running":
             await self._conn.execute(
                 "UPDATE streams SET status=?, pid=?, started_at=? WHERE id=?",
@@ -711,7 +743,7 @@ class Database:
         await self._conn.commit()
 
     async def update_stream_meta(self, stream_id: int, **kwargs):
-        allowed = {"audio_bitrate", "volume", "start_offset", "codec_info", "last_error", "rtmp_url", "source_url", "title"}
+        allowed = {"audio_bitrate", "volume", "start_offset", "codec_info", "last_error", "rtmp_url", "source_url", "title", "quality", "media_mode", "source_mode", "restart_count", "reconnect_count"}
         sets, vals = [], []
         for k, v in kwargs.items():
             if k in allowed:
@@ -916,6 +948,17 @@ class Database:
     # ── Favorites ──
     async def add_favorite(self, user_id: int, item_type: str, title: str, source_url: str = "", meta: str = "") -> int:
         now = datetime.utcnow().isoformat()
+        # Deduplicate identical favorites (same type + source + meta)
+        dup = await self._conn.execute(
+            "SELECT id FROM favorites WHERE user_id=? AND item_type=? AND source_url=? AND meta=?",
+            (user_id, item_type, source_url or "", str(meta or "")),
+        )
+        row = await dup.fetchone()
+        if row:
+            try:
+                return int(row["id"])
+            except Exception:
+                return int(row[0])
         cur = await self._conn.execute(
             "INSERT INTO favorites (user_id, item_type, title, source_url, meta, created_at) VALUES (?,?,?,?,?,?)",
             (user_id, item_type, title, source_url, meta, now),

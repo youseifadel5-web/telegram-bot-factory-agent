@@ -16,7 +16,7 @@ from utils.visualizer import build_live_panel
 
 from .common import _safe_update_reply, _stop_auto_refresh
 from .status import _ensure_auto_refresh, stream_status_callback
-from services.source_probe import probe_source, format_probe_error, looks_like_video, looks_like_audio
+from services.source_probe import probe_source, format_probe_error, looks_like_video, looks_like_audio, resolve_source_mode
 from services import playlist as playlist_service
 
 logger = logging.getLogger(__name__)
@@ -73,9 +73,16 @@ async def stream_start_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         offset = float(s.get("start_offset") or 0)
-        use_video = not (probe.get("media_kind") == "audio" or looks_like_audio(src)) and (
-            bool(probe.get("has_video")) or looks_like_video(src)
-        )
+        # Source Mode: explicit user choice wins; auto defers to the probe.
+        mode = resolve_source_mode(s.get("media_mode") or s.get("source_mode") or "auto", probe, src)
+        if mode == "audio":
+            use_video = False
+        elif mode == "video":
+            use_video = bool(probe.get("has_video")) or looks_like_video(src) or probe.get("has_video") is None
+        else:
+            use_video = not (probe.get("media_kind") == "audio" or looks_like_audio(src)) and (
+                bool(probe.get("has_video")) or looks_like_video(src)
+            )
         pid = await asyncio.to_thread(
             stream_manager.start_stream,
             stream_id, src, s["rtmp_url"],
@@ -88,6 +95,9 @@ async def stream_start_callback(update: Update, context: ContextTypes.DEFAULT_TY
             has_video=probe.get("has_video"),
             source_type=probe.get("source_type") or "",
             probe_result=probe,
+            quality=s.get("quality") or "auto",
+            source_mode=mode,
+            user_id=s.get("user_id"),
         )
         if pid:
             await db.update_stream_status(stream_id, "running", pid)
@@ -110,8 +120,9 @@ async def stream_stop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if not s or s["user_id"] != query.from_user.id:
             await query.answer("غير مسموح", show_alert=True)
             return
+        meta = stream_manager.get_meta(stream_id) or {}
         stream_manager.stop_stream(stream_id)
-        await db.update_stream_status(stream_id, "stopped")
+        await db.update_stream_status(stream_id, "stopped", restart_count=meta.get("restarts"))
         await query.answer("⏹ تم الإيقاف")
         # Optional auto-archive for complete VOD sources only
         try:
@@ -224,6 +235,62 @@ async def stream_br_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     stream_manager.set_bitrate(sid, br)
     await query.answer(f"🎵 {br}")
     await _refresh_status(update, context, sid)
+
+
+async def stream_clone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Clone stream CONFIG only — never runtime state (PID/process/locks)."""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    try:
+        sid = int((query.data or "").split(":")[1])
+        original = await db.get_stream(sid)
+        uid = query.from_user.id
+        if not original or (original.get("user_id") != uid and not is_admin(uid, ADMIN_ID)):
+            try:
+                await query.answer("غير مسموح", show_alert=True)
+            except Exception:
+                pass
+            return
+        clone_id = await db.create_stream(
+            uid,
+            f"{original.get('title') or 'بث'} — نسخة",
+            original.get("source_url") or "",
+            original.get("rtmp_url"),
+        )
+        await db.update_stream_meta(
+            clone_id,
+            audio_bitrate=original.get("audio_bitrate") or "128k",
+            volume=float(original.get("volume") or 1.0),
+            start_offset=float(original.get("start_offset") or 0),
+            codec_info=original.get("codec_info") or "",
+            quality=original.get("quality") or "auto",
+            media_mode=original.get("media_mode") or "auto",
+            source_mode=original.get("source_mode") or "auto",
+        )
+        await db.add_stream_log(clone_id, uid, "cloned", f"clone of #{sid}")
+        try:
+            await query.answer(f"📋 تم النسخ إلى #{clone_id}")
+        except Exception:
+            pass
+        await query.edit_message_text(
+            f"✅ تم نسخ إعدادات البث إلى <code>#{clone_id}</code>\n\n"
+            "البث الجديد محفوظ ومتوقف (بدون حالة تشغيل أو عملية FFmpeg).",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📊 فتح اللوحة", callback_data=f"stream_status:{clone_id}")],
+                [InlineKeyboardButton("📡 البثوث الحالية", callback_data="current_stream")],
+                [InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")],
+            ]),
+        )
+    except Exception as exc:
+        logger.exception("clone stream failed: %s", exc)
+        try:
+            await query.answer("تعذر نسخ البث", show_alert=True)
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------- #

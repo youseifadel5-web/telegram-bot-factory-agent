@@ -63,6 +63,7 @@ from handlers.streams import (
     rtmp_use_saved_callback, rtmp_change_callback, rtmp_skip_callback,
     probe_continue_callback, probe_retry_callback, cancel_all_status_tasks,
     stream_history_callback, stream_fav_callback,
+    stream_logs_callback, stream_stats_callback, stream_clone_callback,
 )
 from handlers.archive import (
     archive_menu_callback, archive_page_callback, archive_search_callback,
@@ -272,6 +273,12 @@ async def conv_menu_fallback(update: Update, context):
 
 async def post_init(app: Application):
     await db.connect()
+    try:
+        import asyncio as _aio
+        from services.stream import set_logging_loop
+        set_logging_loop(_aio.get_running_loop())
+    except Exception as e:
+        logger.warning("stream log bridge not active: %s", e)
     try:
         from utils.helpers import register_admin
         for u in await db.get_all_users():
@@ -653,6 +660,9 @@ def main():
     app.add_handler(CallbackQueryHandler(section_stream_callback, pattern="^section_stream$"))
     app.add_handler(CallbackQueryHandler(stream_history_callback, pattern=r"^stream_history"))
     app.add_handler(CallbackQueryHandler(stream_fav_callback, pattern=r"^stream_fav:"))
+    app.add_handler(CallbackQueryHandler(stream_clone_callback, pattern=r"^stream_clone:\d+$"))
+    app.add_handler(CallbackQueryHandler(stream_logs_callback, pattern=r"^stream_logs:\d+$"))
+    app.add_handler(CallbackQueryHandler(stream_stats_callback, pattern=r"^stream_stats:\d+$"))
     app.add_handler(CallbackQueryHandler(section_audio_callback, pattern="^section_audio$"))
     app.add_handler(CallbackQueryHandler(section_iptv_callback, pattern="^section_iptv$"))
     app.add_handler(CallbackQueryHandler(section_tools_callback, pattern="^section_tools$"))

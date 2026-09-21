@@ -35,6 +35,12 @@
 pip install -r requirements.txt
 ```
 
+لتحسين أداء Pyrogram في نقل الملفات، يمكن تثبيت التسريع الاختياري إذا كان الخادم يحتوي على مترجم C:
+
+```bash
+pip install -r requirements-optional.txt
+```
+
 أو استخدم `start.sh` / `boot.py` (يثبت تلقائيًا إن لزم).
 
 ---
