@@ -222,56 +222,117 @@ def file_actions_keyboard(file_id: int, is_admin: bool = False) -> InlineKeyboar
 
 
 def stream_actions_keyboard(stream_id: int, is_running: bool, can_control: bool = True) -> InlineKeyboardMarkup:
-    """Rich control panel — legacy V6 ecosystem (logs/stats/clone/fav) merged
-    with the current playlist/volume/bitrate controls. Nothing removed."""
+    """لوحة تحكم نظيف ومُحدودة، كلها مربوطة فعلاً بالبوت/البث الحالي.
+
+    callback_data مُسمّاة بحيز (lp:) لتجنّب التصادم مع باقي القائمة والتداخل بين البثوث،
+    وبيانات البث (id) دائماً في النهاية لتسهيل الاستخراج الموحّد في المُعالِج العام.
+    """
     sid = stream_id
     if not can_control:
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("📊 تحديث الحالة", callback_data=f"stream_status:{sid}")],
-            [InlineKeyboardButton("🔙 البثوث الحالية", callback_data="current_stream")],
+            [InlineKeyboardButton("📡 حالة البث", callback_data="current_stream")],
         ])
     control_row = (
-        [InlineKeyboardButton("⏹ إيقاف", callback_data=f"stream_stop:{sid}"),
-         InlineKeyboardButton("🔄 إعادة", callback_data=f"stream_restart:{sid}")]
+        [
+            InlineKeyboardButton("⏹ إيقاف البث", callback_data=f"lp:stop:{sid}"),
+            InlineKeyboardButton("🔄 إعادة", callback_data=f"lp:restart:{sid}"),
+        ]
         if is_running else
-        [InlineKeyboardButton("▶️ تشغيل", callback_data=f"stream_start:{sid}"),
-         InlineKeyboardButton("🔄 إعادة", callback_data=f"stream_restart:{sid}")]
+        [
+            InlineKeyboardButton("▶️ تشغيل البث", callback_data=f"lp:start:{sid}"),
+            InlineKeyboardButton("🔄 إعادة", callback_data=f"lp:restart:{sid}"),
+        ]
     )
+    quick_row = [
+        InlineKeyboardButton("🔊 +", callback_data=f"lp:vol_plus:{sid}"),
+        InlineKeyboardButton("🔉 -", callback_data=f"lp:vol_minus:{sid}"),
+        InlineKeyboardButton("🔇 كتم", callback_data=f"lp:mute:{sid}"),
+    ]
+    quality_row = [
+        InlineKeyboardButton("64k", callback_data=f"lp:br:{sid}:64k"),
+        InlineKeyboardButton("128k ⭐", callback_data=f"lp:br:{sid}:128k"),
+        InlineKeyboardButton("192k", callback_data=f"lp:br:{sid}:192k"),
+    ]
+    more_btn = InlineKeyboardButton("⬇️ المزيد", callback_data=f"lp:more:{sid}")
     buttons = [
         control_row,
+        quick_row,
+        quality_row + [more_btn],
         [
-            InlineKeyboardButton("📜 سجلات", callback_data=f"stream_logs:{sid}"),
-            InlineKeyboardButton("📈 إحصائيات", callback_data=f"stream_stats:{sid}"),
+            InlineKeyboardButton("📊 تحديث الحالة", callback_data=f"stream_status:{sid}"),
+            InlineKeyboardButton("📡 حالة البث", callback_data="current_stream"),
         ],
-        [
-            InlineKeyboardButton("📋 استنساخ", callback_data=f"stream_clone:{sid}"),
-            InlineKeyboardButton("⭐ مفضلة", callback_data=f"stream_fav:{sid}"),
-        ],
-        [
-            InlineKeyboardButton("⬅️ السابق", callback_data=f"pl_prev:{sid}"),
-            InlineKeyboardButton("📃 القائمة", callback_data=f"pl_view:{sid}"),
-            InlineKeyboardButton("➡️ التالي", callback_data=f"pl_next:{sid}"),
-        ],
-        [
-            InlineKeyboardButton("🔀 عشوائي", callback_data=f"pl_shuffle:{sid}"),
-            InlineKeyboardButton("🔁 تكرار", callback_data=f"pl_loop:{sid}"),
-        ],
-        [
-            InlineKeyboardButton("🔊 +", callback_data=f"stream_vol_up:{sid}"),
-            InlineKeyboardButton("🔉 -", callback_data=f"stream_vol_down:{sid}"),
-            InlineKeyboardButton("🔇 كتم", callback_data=f"stream_mute:{sid}"),
-        ],
-        [
-            InlineKeyboardButton("64k", callback_data=f"stream_br:{sid}:64k"),
-            InlineKeyboardButton("128k ⭐", callback_data=f"stream_br:{sid}:128k"),
-            InlineKeyboardButton("192k", callback_data=f"stream_br:{sid}:192k"),
-        ],
-        [InlineKeyboardButton("📊 تحديث الحالة", callback_data=f"stream_status:{sid}")],
-        [InlineKeyboardButton("📚 أرشفة الفيديو", callback_data=f"arch_stream:{sid}")],
-        [InlineKeyboardButton("🗑 حذف البث", callback_data=f"stream_delete:{sid}")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="current_stream")],
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+def stream_submenu_keyboard(stream_id: int, is_running: bool, can_control: bool = True) -> InlineKeyboardMarkup:
+    """القائمة الفرعية (يفتحها زر ⬇️ المزيد): تغيير المصدر / إيقاف / تكرار / عشوائي / تقديم-تأخير / إحصائيات / سجلات / استنساخ / مفضلة / أرشفة / حذف."""
+    sid = stream_id
+    source_btn = "⛔ إيقاف أولاً لتغيير المصدر" if is_running else "🔁 تغيير المصدر"
+    source_action = "lp:change_na" if is_running else f"lp:change_src:{sid}"
+    controls = (
+        [
+            InlineKeyboardButton("⏹ إيقاف", callback_data=f"lp:stop:{sid}"),
+            InlineKeyboardButton("🔄 إعادة", callback_data=f"lp:restart:{sid}"),
+        ]
+        if is_running else
+        [
+            InlineKeyboardButton("▶️ تشغيل", callback_data=f"lp:start:{sid}"),
+            InlineKeyboardButton("🔄 إعادة", callback_data=f"lp:restart:{sid}"),
+        ]
+    )
+    playlist_row = [
+        InlineKeyboardButton("⬅️ السابق", callback_data=f"lp:pl_prev:{sid}"),
+        InlineKeyboardButton("📃 قائمة التشغيل", callback_data=f"lp:pl_view:{sid}"),
+        InlineKeyboardButton("➡️ التالي", callback_data=f"lp:pl_next:{sid}"),
+    ]
+    modes_row = [
+        InlineKeyboardButton("🔀 عشوائي", callback_data=f"lp:pl_shuffle:{sid}"),
+        InlineKeyboardButton("🔁 تكرار", callback_data=f"lp:pl_loop:{sid}"),
+    ]
+    rows = [
+        [InlineKeyboardButton(source_btn, callback_data=source_action)],
+        controls,
+        playlist_row,
+        modes_row,
+        [
+            InlineKeyboardButton("📜 سجلات", callback_data=f"lp:logs:{sid}"),
+            InlineKeyboardButton("📈 إحصائيات", callback_data=f"lp:stats:{sid}"),
+        ],
+        [
+            InlineKeyboardButton("📋 استنساخ", callback_data=f"lp:clone:{sid}"),
+            InlineKeyboardButton("⭐ مفضلة", callback_data=f"lp:fav:{sid}"),
+        ],
+        [
+            InlineKeyboardButton("🗑 حذف البث", callback_data=f"lp:delete:{sid}"),
+            InlineKeyboardButton("📚 أرشفة", callback_data=f"lp:archive:{sid}"),
+        ],
+        [
+            InlineKeyboardButton("📊 لوحة البث", callback_data=f"stream_status:{sid}"),
+            InlineKeyboardButton("📡 حالة البث", callback_data="current_stream"),
+        ],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def streams_list_keyboard(streams) -> InlineKeyboardMarkup:
+    """قائمة بثوث (نشطة + متوقفة) مع كل بث له ضغط يفتح لوحة التحكم الكاملة.
+    مولِّد موجود للحفاظ على توافق الاستيراد من keyboards/stream.py - التنفيذ الفعلي في status.py."""
+    rows = []
+    for s in streams or []:
+        try:
+            sid = int(s.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        title = str(s.get("title") or "بث")[:30]
+        rows.append([InlineKeyboardButton(f"#{sid} {title}", callback_data=f"stream_status:{sid}")])
+    rows.append([
+        InlineKeyboardButton("🚀 إنشاء بث", callback_data="stream_new"),
+        InlineKeyboardButton("🔙 القائمة", callback_data="main_menu"),
+    ])
+    return InlineKeyboardMarkup(rows)
 
 
 def cancel_keyboard() -> InlineKeyboardMarkup:

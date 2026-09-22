@@ -64,6 +64,11 @@ from handlers.streams import (
     probe_continue_callback, probe_retry_callback, cancel_all_status_tasks,
     stream_history_callback, stream_fav_callback,
     stream_logs_callback, stream_stats_callback, stream_clone_callback,
+    lp_router,
+    current_stream_page_callback,
+    stream_submenu_callback,
+    stream_change_source_callback,
+    change_source_receive,
 )
 from handlers.archive import (
     archive_menu_callback, archive_page_callback, archive_search_callback,
@@ -701,6 +706,7 @@ def main():
     app.add_handler(CallbackQueryHandler(fav_add_last_callback, pattern="^fav_add_last$"))
 
     app.add_handler(CallbackQueryHandler(current_stream_callback, pattern="^current_stream$"))
+    app.add_handler(CallbackQueryHandler(current_stream_page_callback, pattern=r"^current_stream:p\d+$"))
     app.add_handler(CallbackQueryHandler(stream_status_callback, pattern=r"^stream_status:\d+$"))
     app.add_handler(CallbackQueryHandler(stream_start_callback, pattern=r"^stream_start:\d+$"))
     app.add_handler(CallbackQueryHandler(stream_stop_callback, pattern=r"^stream_stop:\d+$"))
@@ -710,6 +716,10 @@ def main():
     app.add_handler(CallbackQueryHandler(stream_vol_down_callback, pattern=r"^stream_vol_down:\d+$"))
     app.add_handler(CallbackQueryHandler(stream_mute_callback, pattern=r"^stream_mute:\d+$"))
     app.add_handler(CallbackQueryHandler(stream_br_callback, pattern=r"^stream_br:\d+:"))
+    # Single unified router for the namespaced live-panel callback family
+    app.add_handler(CallbackQueryHandler(lp_router, pattern=r"^lp:"))
+    app.add_handler(CallbackQueryHandler(stream_submenu_callback, pattern=r"^stream_submenu:\d+$"))
+    app.add_handler(CallbackQueryHandler(stream_change_source_callback, pattern=r"^stream_change_src:\d+$"))
     app.add_handler(CallbackQueryHandler(pl_view_callback, pattern=r"^pl_view:\d+$"))
     app.add_handler(CallbackQueryHandler(pl_next_callback, pattern=r"^pl_next:\d+$"))
     app.add_handler(CallbackQueryHandler(pl_prev_callback, pattern=r"^pl_prev:\d+$"))

@@ -45,6 +45,10 @@ from .probe_flow import (
 from .status import (
     current_stream_callback,
     stream_status_callback,
+    current_stream_page_callback,
+    stream_submenu_callback,
+    stream_change_source_callback,
+    change_source_receive,
 )
 
 from .control import (
@@ -67,6 +71,8 @@ from .playlist import (
     pl_loop_callback,
 )
 
+from .lp_router import lp_router
+
 from .stations import (
     stations_menu_callback,
     stations_command,
@@ -84,6 +90,10 @@ __all__ = [
     "WAITING_TITLE", "WAITING_SOURCE", "WAITING_OFFSET", "WAITING_RTMP_URL", "WAITING_STREAM_KEY",
     "stream_new_callback", "stream_from_url_callback",
     "receive_title", "receive_source", "receive_offset", "receive_rtmp_url", "receive_stream_key",
+    "current_stream_page_callback",
+    "stream_submenu_callback",
+    "stream_change_source_callback",
+    "change_source_receive",
     "cancel_conversation", "current_stream_callback", "stream_status_callback",
     "stream_start_callback", "stream_stop_callback", "stream_delete_callback",
     "stream_restart_callback", "stream_vol_up_callback", "stream_vol_down_callback",
@@ -97,5 +107,6 @@ __all__ = [
     "stream_history_callback", "stream_fav_callback",
     "stream_logs_callback", "stream_stats_callback", "stream_clone_callback",
     "stream_new_from_text",
+    "lp_router",
     "finalize_stream", "_finalize_stream",
 ]

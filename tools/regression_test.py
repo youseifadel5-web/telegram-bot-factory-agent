@@ -172,9 +172,12 @@ def callback_registration():
                 r"stream_mute:", r"stream_vol_up:", r"stream_vol_down:",
                 r"stream_history", r"current_stream"):
         assert re.search(pat, text), f"missing registration for {pat}"
+    assert re.search(r"CallbackQueryHandler\(lp_router, pattern=r\"\^lp:\"", text), \
+        "missing unified lp router registration"
     kb = (ROOT / "keyboards" / "menus.py").read_text(encoding="utf-8")
-    for btn in ("stream_logs:", "stream_stats:", "stream_clone:", "stream_fav:"):
-        assert btn in kb, f"keyboard missing {btn}"
+    for old_btn, new_btn in (("stream_logs:", "lp:logs:"), ("stream_stats:", "lp:stats:"),
+                             ("stream_clone:", "lp:clone:"), ("stream_fav:", "lp:fav:")):
+        assert old_btn in kb or new_btn in kb, f"keyboard missing {old_btn} / {new_btn}"
 
 
 def regression_matrix():
