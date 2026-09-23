@@ -41,7 +41,8 @@ def _parse(data: str) -> tuple:
 
 async def _can_control(query, s: dict) -> bool:
     uid = query.from_user.id
-    return bool(s) and (s.get("user_id") == uid or is_admin(uid, ADMIN_ID))
+    owner_id = s.get("user_id")
+    return bool(s) and (str(owner_id) == str(uid) or is_admin(uid, ADMIN_ID))
 
 
 async def _back_to_panel(query, context, s: dict):
@@ -60,6 +61,10 @@ async def lp_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
     try:
         action, sid, extra = _parse(query.data or "")
+        # This informational button intentionally has no stream id.
+        if action == "change_na":
+            await query.answer("أوقف البث أولاً لتغيير المصدر", show_alert=True)
+            return
         if not action or not sid:
             return
         s = await db.get_stream(sid)
@@ -224,10 +229,6 @@ async def lp_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query.data = f"stream_change_src:{sid}"
             await stream_change_source_callback(update, context)
             return
-        if action == "change_na":
-            await query.answer("أوقف البث أولاً لتغيير المصدر", show_alert=True)
-            return
-
         await query.answer("⚠️ إجراء غير معروف", show_alert=True)
     except Exception as e:
         logger.exception("lp_router: %s", e)

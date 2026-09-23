@@ -178,6 +178,10 @@ def callback_registration():
     for old_btn, new_btn in (("stream_logs:", "lp:logs:"), ("stream_stats:", "lp:stats:"),
                              ("stream_clone:", "lp:clone:"), ("stream_fav:", "lp:fav:")):
         assert old_btn in kb or new_btn in kb, f"keyboard missing {old_btn} / {new_btn}"
+    rtmp_setup = (ROOT / "handlers" / "streams" / "rtmp_setup.py").read_text(encoding="utf-8")
+    assert "import asyncio" in rtmp_setup, "IPTV RTMP setup must import asyncio"
+    lp = (ROOT / "handlers" / "streams" / "lp_router.py").read_text(encoding="utf-8")
+    assert 'if action == "change_na":' in lp, "lp router must handle id-less change_na"
 
 
 def regression_matrix():
