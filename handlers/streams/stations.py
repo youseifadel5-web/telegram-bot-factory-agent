@@ -168,6 +168,7 @@ async def station_start_callback(update: Update, context: ContextTypes.DEFAULT_T
             station["sources"][0],
             rtmp,
             with_video=station.get("with_video", False),
+            force_video_for_audio=not station.get("with_video", False),
             sources=station["sources"],
         )
 

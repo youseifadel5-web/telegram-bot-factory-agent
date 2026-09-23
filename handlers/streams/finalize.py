@@ -241,6 +241,10 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     media_kind=probe.get("media_kind") or ("video" if use_video else "audio"),
                     has_audio=probe.get("has_audio"),
                     has_video=probe.get("has_video"),
+                    # Telegram RTMP accepts audio reliably when a lightweight
+                    # video track is present; keep genuine audio-only for
+                    # local/non-RTMP callers, but add a tiny black canvas here.
+                    force_video_for_audio=not use_video,
                     source_type=probe.get("source_type") or "",
                     probe_result=probe,
                 )
@@ -373,4 +377,3 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _safe_update_reply(update, f"❌ خطأ: {e}")
         clear_workflow_state(context.user_data)
     return ConversationHandler.END
-

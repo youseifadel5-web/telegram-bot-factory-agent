@@ -725,6 +725,8 @@ class StreamManager:
             return f"مُرمّز الفيديو غير متوفر في FFmpeg (جرّب تثبيت بناء كامل مع libx264): {line[:140]}"
         if "broken pipe" in low or "connection reset" in low:
             return f"انقطع اتصال RTMP (تحقق من المفتاح/السيرفر): {line[:140]}"
+        if any(x in low for x in ("error opening output", "failed to open output", "rtmp", "flv muxer")):
+            return f"رفض خادم RTMP الإخراج (تحقق من السيرفر والمفتاح): {line[:160]}"
         if any(x in low for x in ("500", "502", "503", "504", "server returned 5")):
             return f"خطأ خادم المصدر (5XX): {line[:120]}"
         if "404" in low or "not found" in low:

@@ -85,6 +85,7 @@ async def start_stream(user_id: int, stream_id: int, source_url: str, rtmp_url: 
         media_kind=probe.get("media_kind") or "unknown",
         has_audio=probe.get("has_audio"),
         has_video=probe.get("has_video"),
+        force_video_for_audio=not bool(probe.get("has_video")),
         source_type=probe.get("source_type") or "",
         probe_result=probe,
     )
