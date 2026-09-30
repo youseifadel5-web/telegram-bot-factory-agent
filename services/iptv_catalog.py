@@ -25,6 +25,8 @@ CATALOG_DIR = ROOT / "data" / "iptv" / "catalog"
 CATALOG_DIR.mkdir(parents=True, exist_ok=True)
 
 BASE = "https://iptv-org.github.io/iptv"
+# مرآة CDN أسرع وأكثر موثوقية لنفس ملفات gh-pages — تُستخدم تلقائياً عند فشل المصدر الأساسي
+MIRROR_BASE = "https://cdn.jsdelivr.net/gh/iptv-org/iptv@gh-pages"
 
 # ttl in seconds
 CATEGORY_TTL = 6 * 3600
@@ -98,6 +100,25 @@ def package_url(key: str) -> str:
     return f"{BASE}/categories/{key}.m3u"
 
 
+def _package_url_mirror(key: str) -> str:
+    if _is_country(key):
+        return f"{MIRROR_BASE}/countries/{key}.m3u"
+    return f"{MIRROR_BASE}/categories/{key}.m3u"
+
+
+async def _fetch_package_m3u(key: str):
+    """جلب باقة من المصدر الأساسي ثم من المرآة إن فشل."""
+    import aiohttp
+    last = None
+    for url in (package_url(key), _package_url_mirror(key)):
+        try:
+            return await fetch_m3u(url, timeout=FETCH_TIMEOUT)
+        except Exception as e:
+            last = e
+            logger.warning("package fetch failed (%s): %s — trying next source", url[:80], e)
+    raise last
+
+
 # --------------------------------------------------------------------------- #
 # Arabic language set
 # --------------------------------------------------------------------------- #
@@ -122,7 +143,15 @@ async def get_arabic_keys() -> set:
             pass
     keys: set = set()
     try:
-        channels = await fetch_m3u(f"{BASE}/languages/ara.m3u", timeout=FETCH_TIMEOUT)
+        channels = None
+        for url in (f"{BASE}/languages/ara.m3u", f"{MIRROR_BASE}/languages/ara.m3u"):
+            try:
+                channels = await fetch_m3u(url, timeout=FETCH_TIMEOUT)
+                break
+            except Exception as e:
+                logger.warning("arabic set fetch failed (%s): %s", url[:80], e)
+        if channels is None:
+            raise RuntimeError("تعذر جلب قائمة القنوات العربية من المصدر والمرآة")
         for ch in channels:
             if ch.get("url"):
                 keys.add(ch["url"])
@@ -217,7 +246,7 @@ async def get_package(key: str, force: bool = False) -> List[Dict]:
         if cached is not None:
             return cached
 
-    channels = filter_visible_channels(await fetch_m3u(package_url(key), timeout=FETCH_TIMEOUT))
+    channels = filter_visible_channels(await _fetch_package_m3u(key))
 
     arabic = await get_arabic_keys()
     out, seen = [], set()
