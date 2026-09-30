@@ -92,3 +92,55 @@ def test_hls_with_misleading_extension_uses_hls_demuxer():
         with_video=True, has_video=True, has_audio=True, source_type="M3U8 / HLS",
     )
     assert "-f" in cmd and "hls" in cmd
+
+
+# ── تماشياً مع كود FFmpeg المجرّب (سكربت المستخدم) ────────────────────────────
+
+def test_cmd_matches_proven_script_values():
+    """قيم السكربت المجرّب: thread_queue 4096، analyze/probe 20M، صوت 44100، g=50."""
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg",
+        "https://cdn.example.com/live/index.m3u8",
+        "rtmps://dc4-1.rtmp.t.me/s/KEY",
+        with_video=True,
+        media_kind="video",
+        has_audio=True,
+        has_video=True,
+        audio_bitrate="96k",
+        volume=1.0,
+    )
+    joined = " ".join(map(str, cmd))
+    assert "-thread_queue_size 4096" in joined
+    assert "-analyzeduration 20M" in joined
+    assert "-probesize 20M" in joined
+    assert "-ar 44100" in joined
+    assert "-g 50" in joined
+    assert "-flvflags no_duration_filesize" in joined
+    assert "-preset veryfast" in joined and "-tune zerolatency" in joined
+    assert "-pix_fmt yuv420p" in joined
+
+
+def test_audio_only_matches_proven_script():
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg",
+        "https://radio.example.com/stream.mp3",
+        "rtmps://example/live/KEY",
+        with_video=False,
+        media_kind="audio",
+        has_audio=True,
+        audio_bitrate="128k",
+    )
+    joined = " ".join(map(str, cmd))
+    assert "-ar 44100" in joined and "-ac 2" in joined
+    assert "-b:a 128k" in joined
+
+
+def test_quality_profile_script_parity():
+    from services.quality_manager import get_quality, resolve_for_source
+    p = get_quality("360p_stable")
+    assert p.video_bitrate == "700k"
+    assert p.maxrate_v == "700k"      # maxrate = bitrate (بلا هامش)
+    assert p.bufsize_v == "1400k"     # 2x
+    assert p.audio_bitrate == "96k"
+    a = resolve_for_source("auto", 1080, media_kind="audio")
+    assert a.audio_bitrate == "128k"  # صوت فقط 128k

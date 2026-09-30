@@ -337,8 +337,8 @@ def build_ffmpeg_cmd(
         "-hide_banner",
         "-loglevel", "warning",
         "-nostdin",
-        "-analyzeduration", "15M",
-        "-probesize", "15M",
+        "-analyzeduration", "20M",
+        "-probesize", "20M",
         "-err_detect", "ignore_err",
     ]
 
@@ -440,7 +440,7 @@ def build_ffmpeg_cmd(
     cmd += [
         "-fflags", "+genpts+discardcorrupt+igndts",
         "-max_interleave_delta", "0",
-        "-thread_queue_size", "512",
+        "-thread_queue_size", "4096",
         "-i", source_url,
     ]
 
@@ -488,7 +488,7 @@ def build_ffmpeg_cmd(
         ]
         if has_audio is not False:
             vcodec_block += [
-                "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000", "-ac", "2",
+                "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "44100", "-ac", "2",
                 "-af", af,
             ]
         vcodec_block += [
@@ -510,7 +510,7 @@ def build_ffmpeg_cmd(
             "-vn",
             "-c:a", "aac",
             "-b:a", audio_bitrate,
-            "-ar", "48000",
+            "-ar", "44100",
             "-ac", "2",
             "-af", af,
             "-max_muxing_queue_size", "1024",

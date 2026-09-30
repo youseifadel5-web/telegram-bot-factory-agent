@@ -22,7 +22,8 @@ class QualityProfile:
 
     @property
     def maxrate_v(self) -> str:
-        return self.maxrate or _bump(self.video_bitrate, 1.2)
+        # تماشياً مع كود FFmpeg المجرّب: maxrate = bitrate تماماً (بلا هامش 1.2x)
+        return self.maxrate or self.video_bitrate
 
     @property
     def bufsize_v(self) -> str:
@@ -116,7 +117,8 @@ def resolve_for_source(
     """
     req = str(requested or "auto").lower().strip()
     if media_kind == "audio":
-        return QualityProfile("audio_only", 0, 0, "0k", get_quality(req, default).audio_bitrate)
+        # صوت فقط: 128k/44100/stereo — نفس قيم كود FFmpeg المجرّب للصوت
+        return QualityProfile("audio_only", 0, 0, "0k", "128k")
     if req in ("", "auto"):
         return choose_quality_capped(source_height)
     prof = PROFILES.get(req)
