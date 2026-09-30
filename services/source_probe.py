@@ -296,6 +296,41 @@ def probe_source(
         except Exception as e:
             logger.debug("master variants: %s", e)
 
+    # ── مسار الفحص السريع لمصادر HLS/IPTV ─────────────────────────────
+    # القائمة تم تنزيلها فعلاً بنجاح (#EXTM3U) — لا داعي لتشغيل ffprobe
+    # وتضييع 20-35 ثانية على مصدر عرفنا نوعه بالكامل. الكودكس تُقرأ من
+    # وسوم CODECS داخل الـ master playlist إن وُجدت.
+    if result.get("is_hls"):
+        codecs = ""
+        variants = result.get("variants") or []
+        if variants:
+            try:
+                codecs = str((variants[0] or {}).get("codecs") or "")
+            except Exception:
+                codecs = ""
+        result["has_video"] = True
+        result["has_audio"] = True
+        if "avc1" in codecs or "h264" in codecs:
+            result["video_codec"] = "h264"
+        if "mp4a" in codecs or "aac" in codecs:
+            result["audio_codec"] = "aac"
+        if "stpp" in codecs or "ttml" in codecs:
+            result["has_subtitles"] = True
+        if variants:
+            try:
+                top = variants[0] or {}
+                if top.get("width") and top.get("height"):
+                    result["width"] = int(top["width"])
+                    result["height"] = int(top["height"])
+                    result["quality"] = f"{result['width']}x{result['height']}"
+            except Exception:
+                pass
+        result["ok"] = True
+        result["format"] = "hls"
+        result["media_kind"] = detect_media_kind(url, result)
+        result["note"] = "فحص سريع (HLS مؤكد عبر HTTP)"
+        return result
+
     if not url:
         result["error"] = "الرابط فارغ"
         result["solution"] = "أرسل رابط مصدر صحيح"
@@ -363,6 +398,9 @@ def probe_source(
         return result
 
     probe = shutil.which("ffprobe") or ffmpeg
+    # HLS غير مؤكد: قلل مهلة الفحص — لا داعي لانتظار 35 ثانية على قائمة
+    if result.get("is_hls") or ".m3u8" in url.lower():
+        timeout = min(timeout, 15)
     try:
         # Prefer the ffprobe that ships next to the downloaded static ffmpeg.
         from services.stream import LOCAL_FFMPEG_DIR

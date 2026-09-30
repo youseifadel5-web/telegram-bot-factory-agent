@@ -279,6 +279,7 @@ def build_ffmpeg_cmd(
     source_type: str = "",
     force_video_for_audio: bool = False,
     quality_profile=None,
+    allow_copy: bool = False,
 ) -> list:
     """Build a robust FFmpeg command for Telegram RTMPS / FLV live ingest.
 
@@ -435,6 +436,24 @@ def build_ffmpeg_cmd(
         "-i", source_url,
     ]
 
+    if allow_copy:
+        # ── وضع البث المباشر (IPTV): نسخ بدون إعادة ترميز ──────────────
+        # أسرع بكثير وأخف على المعالج: FFmpeg يقرأ h264/aac ويكتبه كما هو.
+        # يُستخدم للمصادر المؤكدة (فحص HLS سريع) ويسقط تلقائياً إلى
+        # إعادة الترميز إن فشل.
+        cmd += [
+            "-map", "0:v:0?",
+            "-map", "0:a:0?",
+            "-c", "copy",
+            "-max_muxing_queue_size", "2048",
+            "-progress", "pipe:1",
+            "-nostats",
+            "-f", "flv",
+            "-flvflags", "no_duration_filesize",
+            rtmp_url,
+        ]
+        return cmd
+
     if effective_video:
         if canvas:
             # Audio-only source forced into an RTMP that requires a video
@@ -580,11 +599,27 @@ class StreamManager:
             )
         except Exception:
             _prof = None
+        # ── قرار وضع النسخ (بدون ترميز) لمصادر IPTV ──────────────────
+        vc = str(meta.get("video_codec") or "").lower()
+        st = (meta.get("source_type") or "").lower()
+        allow_copy = (
+            bool(meta.get("with_video"))
+            and not meta.get("force_video_for_audio")
+            and not meta.get("copy_failed")
+            and abs(float(meta.get("volume", 1.0)) - 1.0) < 1e-6
+            and (meta.get("quality") in (None, "", "auto"))
+            and not meta.get("start_offset")
+            and vc in ("", "h264", "avc1")
+            and ("hls" in st or "m3u8" in st)
+        )
+        meta["copy_mode"] = bool(allow_copy)
+
         cmd = build_ffmpeg_cmd(
             self.ffmpeg,
             source,
             meta["rtmp"],
             quality_profile=_prof,
+            allow_copy=allow_copy,
             audio_bitrate=meta.get("audio_bitrate", "128k"),
             volume=meta.get("volume", 1.0),
             with_video=meta.get("with_video", False),
@@ -873,6 +908,40 @@ class StreamManager:
         logger.info("Audio watchdog stopped for stream %s", stream_id)
         self._watchdogs.pop(stream_id, None)
 
+    def _apply_relay_default(self, meta: dict) -> None:
+        """حوّل كل مصادر HLS في البث إلى الريلاي المحلي عند الإنشاء."""
+        headers = meta.get("extra_headers") or None
+
+        def looks_hls(u: str) -> bool:
+            low = str(u or "").lower()
+            return low.startswith(("http://", "https://")) and (
+                ".m3u8" in low or "hls" in low or "mpegurl" in low
+            )
+
+        st = (meta.get("source_type") or "").lower()
+        primary = self._current_source(meta) or ""
+        if not (looks_hls(primary) or "hls" in st or "m3u8" in st):
+            return
+        if meta.get("relay_mode"):
+            return
+        try:
+            from services.hls_relay import get_relay_url
+            sources = meta.get("sources") or []
+            if sources:
+                meta["sources"] = [
+                    get_relay_url(u, headers=headers) if looks_hls(u) else u
+                    for u in sources
+                ]
+            elif looks_hls(primary):
+                meta["source"] = get_relay_url(primary, headers=headers)
+            else:
+                return
+            meta["relay_mode"] = True
+            meta["relay_original"] = primary
+            logger.info("IPTV source routed through local relay: %s", primary[:100])
+        except Exception as e:
+            logger.warning("relay default skipped: %s", e)
+
     def _try_relay_fallback(self, stream_id: int, meta: dict) -> bool:
         """حوّل مصدر HLS إلى الريلاي المحلي (مرة واحدة لكل مصدر)."""
         if meta.get("relay_mode"):
@@ -909,6 +978,10 @@ class StreamManager:
             return
         meta["healthy"] = False
         meta["state"] = "reconnecting"
+        if meta.get("copy_mode"):
+            # وضع النسخ فشل — المحاولة القادمة تعيد الترميز (أكثر توافقاً)
+            meta["copy_failed"] = True
+            meta["copy_mode"] = False
         # NOTE: no post-mortem process.stderr.read() here — the _stderr_loop
         # thread already owns that pipe and keeps feeding meta["last_error"];
         # reading it here raced and could swallow/garbage the tail.
@@ -1086,7 +1159,14 @@ class StreamManager:
                 "reconnect_count": 0,
                 "source_mode": source_mode or "auto",
                 "user_id": user_id,
+                "video_codec": (probe_result or {}).get("video_codec")
+                or (probe_result or {}).get("codec"),
             }
+            # ── IPTV/HLS: مرّر المصدر عبر الريلاي المحلي من البداية ─────
+            # شبكات CDN كثيرة (nrpstream/Cloudflare...) تحظر اتصال FFmpeg
+            # المباشر (403) وتقبل اتصال Python — المرور عبر الريلاي يوفر
+            # محاولة الفشل الأولى ويجعل التشغيل أسرع وأثبت.
+            self._apply_relay_default(self._meta[stream_id])
             pid = self._spawn(stream_id)
             if not pid:
                 self._meta.pop(stream_id, None)

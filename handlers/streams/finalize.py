@@ -284,15 +284,40 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         probe_result=probe,
                     )
                     await _asyncio.sleep(5.0)
-                # ON AIR فقط لو healthy؛ لو شغال لسه بدون healthy → أصفر
-                if pid and stream_manager.is_healthy(stream_id):
+                # ── لا نعلن «بث» إلا بعد تشغيل فعلي مؤكد ──────────────────
+                # ننتظر تدفق بيانات حقيقي (أو فشلاً واضحاً) قبل أي رسالة،
+                # بدل «جاري الاتصال» التي تظهر قبل أن يعمل شيء فعلاً.
+                if pid:
                     await db.update_stream_status(stream_id, "running", pid)
-                    status = "🟢 ON AIR — تم تأكيد تدفق البيانات"
-                    await db.add_stream_log(stream_id, user_id, "started", "ON AIR confirmed")
-                elif pid and stream_manager.is_running(stream_id):
-                    await db.update_stream_status(stream_id, "running", pid)
-                    status = "🟡 جاري الاتصال... افتح «البث الحالي» خلال 15 ثانية"
-                    await db.add_stream_log(stream_id, user_id, "started", "connecting")
+                    verdict = "connecting"
+                    deadline = _asyncio.get_running_loop().time() + 40
+                    while _asyncio.get_running_loop().time() < deadline:
+                        try:
+                            if stream_manager.is_healthy(stream_id):
+                                verdict = "on_air"
+                                break
+                            meta_now = stream_manager.get_meta(stream_id) or {}
+                            state_now = str(meta_now.get("state") or "")
+                            if not stream_manager.is_running(stream_id) and state_now in ("error", "failed"):
+                                verdict = "failed"
+                                break
+                        except Exception:
+                            pass
+                        await _asyncio.sleep(2)
+                    if verdict == "on_air":
+                        status = "🟢 ON AIR — البث يعمل فعلاً وتم تأكيد تدفق البيانات"
+                        await db.add_stream_log(stream_id, user_id, "started", "ON AIR confirmed")
+                    elif verdict == "failed":
+                        meta_now = stream_manager.get_meta(stream_id) or {}
+                        stream_manager.stop_stream(stream_id)
+                        await db.update_stream_status(stream_id, "stopped")
+                        err_now = str(meta_now.get("last_error") or "غير معروف")[:280]
+                        status = f"🔴 فشل التشغيل الفعلي — لم يبدأ البث\n🔎 السبب: {html.escape(err_now)}"
+                        await db.update_stream_error(stream_id, err_now)
+                        await db.add_stream_log(stream_id, user_id, "start_fail", err_now)
+                    else:
+                        status = "🟡 لا يزال يحاول الاتصال — افتح «البث الحالي» للمتابعة"
+                        await db.add_stream_log(stream_id, user_id, "started", "connecting")
                 else:
                     if drive_fid:
                         await _safe_update_reply(update, 

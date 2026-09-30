@@ -7,9 +7,20 @@ network touch: HTTP request, ffprobe, FFmpeg input, redirect and HLS variant.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
 import socket
+import time
 from urllib.parse import urlparse
+
+# ── DNS بمهلة محددة + كاش ─────────────────────────────────────────────
+# getaddrinfo بدون مهلة قد يعلّق الفحص 20+ ثانية على نطاق ميت أو DNS بطيء.
+_DNS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="ssrf-dns"
+)
+_DNS_CACHE: dict = {}
+_DNS_TTL = 300.0
+_DNS_TIMEOUT = 4.0
 
 # Hostnames that must never be probed (cloud metadata / internal aliases).
 _BLOCKED_HOSTS = {
@@ -78,14 +89,30 @@ def _host_is_blocked(host: str) -> bool:
     return _ip_is_blocked(host)
 
 
+def _resolve_ips(host: str):
+    """Resolve a host with a hard 4s cap and a 5-minute cache (None = فشل/مهلة)."""
+    now = time.time()
+    hit = _DNS_CACHE.get(host)
+    if hit and now - hit[0] < _DNS_TTL:
+        return hit[1]
+    try:
+        fut = _DNS_EXECUTOR.submit(socket.getaddrinfo, host, None)
+        infos = fut.result(timeout=_DNS_TIMEOUT)
+    except Exception:
+        # DNS failure/timeout → let the HTTP layer fail later with a clear error
+        _DNS_CACHE[host] = (now, None)
+        return None
+    ips = [info[4][0] for info in infos]
+    _DNS_CACHE[host] = (now, ips)
+    return ips
+
+
 def _resolve_blocked(host: str) -> bool:
     """Resolve DNS and deny if ANY resolved address is non-public."""
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except Exception:
-        return False  # DNS failure → let HTTP layer fail later with a clear error
-    for info in infos:
-        ip = info[4][0]
+    ips = _resolve_ips(host)
+    if not ips:
+        return False
+    for ip in ips:
         if _ip_is_blocked(ip):
             return True
     return False
