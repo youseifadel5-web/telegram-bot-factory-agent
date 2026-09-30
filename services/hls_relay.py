@@ -15,17 +15,15 @@ import json
 import logging
 import re
 import threading
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, Optional
 from urllib.parse import urljoin, urlparse
 
-logger = logging.getLogger(__name__)
+from services.http_headers import SNIFF_HEADERS, alt_headers
 
-DEFAULT_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
+logger = logging.getLogger(__name__)
 FETCH_TIMEOUT = 25
 
 _URI_ATTR_RE = re.compile(r'(URI)="([^"]+)"')
@@ -50,16 +48,14 @@ def _decode_target(b64: str):
 
 
 def _make_headers(orig_url: str, extra: Dict[str, str]) -> Dict[str, str]:
-    """Browser-grade headers — نفس الحزمة التي تنجح مع sniff/urllib."""
-    h = {
-        "User-Agent": DEFAULT_UA,
-        "Accept": "*/*",
-        "Accept-Language": "ar,en;q=0.8",
-        "Accept-Encoding": "identity",
-    }
+    """نفس حزمة هيدرات الفحص السريع بالضبط (راجع services/http_headers.py).
+
+    كانت هذه الدالة ترسل UA مكتوباً + Referer + Accept-Language مختلفة عن
+    حزمة الفحص، فكانت شبكات CDN تقبل طلب الفحص وترفض طلب الريلاي بخطأ 5XX
+    لنفس الرابط في نفس اللحظة. الموحد الآن: حزمة واحدة للطرفين.
+    """
+    h = dict(SNIFF_HEADERS)
     host = urlparse(orig_url).netloc
-    if host:
-        h["Referer"] = f"https://{host}/"
     # هيدرات خاصة مررها مصدر البث (أوسكار وغيره) — لكن لنفس النطاق فقط،
     # حتى لا تتسرب بيانات اعتماد مصدرٍ ما إلى خادم آخر داخل القائمة.
     extra_host = urlparse(str(extra.get("_origin_host") or "")).netloc if isinstance(extra, dict) else ""
@@ -83,7 +79,20 @@ def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
     if range_header:
         req_headers["Range"] = range_header
     req = urllib.request.Request(url, headers=req_headers, method="GET")
-    return urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
+    try:
+        return urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
+    except urllib.error.HTTPError as e:
+        # بعض شبكات CDN ترفض الحزمة الأساسية وترد 4XX/5XX مع أنها تقبل
+        # طلب الفحص — أعد المحاولة مرة واحدة بحزمة المتصفح المكتبي
+        # (مع Referer) لروابط القوائم فقط، لا القطع.
+        if e.code and e.code >= 400 and ".m3u8" in url.lower():
+            retry_headers = alt_headers(url, headers)
+            if range_header:
+                retry_headers["Range"] = range_header
+            logger.debug("relay retry with desktop headers (%s): %s", e.code, url[:120])
+            req2 = urllib.request.Request(url, headers=retry_headers, method="GET")
+            return urllib.request.urlopen(req2, timeout=FETCH_TIMEOUT)
+        raise
 
 
 class _RelayHandler(BaseHTTPRequestHandler):

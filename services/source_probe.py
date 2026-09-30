@@ -31,11 +31,8 @@ def sniff_remote_content(url: str, headers: Optional[Dict[str, str]] = None, tim
         return {}
     try:
         import urllib.request
-        req_headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Encoding": "identity",
-        }
+        from services.http_headers import SNIFF_HEADERS
+        req_headers = dict(SNIFF_HEADERS)
         if headers:
             req_headers.update({str(k): str(v) for k, v in headers.items()})
         req = urllib.request.Request(url, headers=req_headers, method="GET")
@@ -154,11 +151,8 @@ def _fetch_master_variants(url: str, headers: Optional[Dict[str, str]] = None, t
         return {}
     try:
         import urllib.request
-        req_headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Encoding": "identity",
-        }
+        from services.http_headers import SNIFF_HEADERS
+        req_headers = dict(SNIFF_HEADERS)
         if headers:
             req_headers.update({str(k): str(v) for k, v in headers.items() if k.lower() != "accept-encoding"})
         req = urllib.request.Request(url, headers=req_headers, method="GET")
