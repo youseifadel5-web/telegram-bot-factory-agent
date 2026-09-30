@@ -873,6 +873,36 @@ class StreamManager:
         logger.info("Audio watchdog stopped for stream %s", stream_id)
         self._watchdogs.pop(stream_id, None)
 
+    def _try_relay_fallback(self, stream_id: int, meta: dict) -> bool:
+        """حوّل مصدر HLS إلى الريلاي المحلي (مرة واحدة لكل مصدر)."""
+        if meta.get("relay_mode"):
+            return False
+        src = self._current_source(meta) or ""
+        low = src.lower()
+        if not low.startswith(("http://", "https://")):
+            return False
+        st = (meta.get("source_type") or "").lower()
+        if not (".m3u8" in low or "hls" in st or "m3u8" in st or "mpegurl" in st):
+            return False
+        try:
+            from services.hls_relay import get_relay_url
+            proxied = get_relay_url(src, headers=meta.get("extra_headers") or None)
+        except Exception as e:
+            logger.warning("relay start failed for stream %s: %s", stream_id, e)
+            return False
+        meta["relay_mode"] = True
+        meta["relay_original"] = src
+        sources = meta.get("sources")
+        if sources:
+            idx = meta.get("source_index", 0) % len(sources)
+            sources[idx] = proxied
+        else:
+            meta["source"] = proxied
+        logger.warning(
+            "Stream %s: CDN blocked direct FFmpeg — switching to local relay", stream_id
+        )
+        return True
+
     def _handle_death(self, stream_id: int, process: Optional[subprocess.Popen]):
         meta = self._meta.get(stream_id)
         if not meta:
@@ -938,6 +968,14 @@ class StreamManager:
         # and succeed after a fresh connection. Retry boundedly before failing.
         if invalid_data and restarts < 3:
             meta["last_error"] = last_err or "FFmpeg لم يتعرف على البيانات — إعادة المحاولة باتصال جديد"
+        if permanent:
+            # حظر CDN لاتصال FFmpeg (403/401): جرّب الريلاي المحلي قبل الاستسلام —
+            # كثير من مصادر IPTV (nrpstream/Cloudflare) تقبل Python وترفض FFmpeg.
+            if self._try_relay_fallback(stream_id, meta):
+                permanent = False
+                meta["restarts"] = 0
+                meta["last_error"] = "إعادة المحاولة عبر الريلاي المحلي لتمرير حظر المصدر"
+                log_stream_event(stream_id, "relay", "تحويل التشغيل عبر الريلاي المحلي (حظر 403)")
         if permanent:
             meta["state"] = FAILED if isinstance(FAILED, str) else "error"
             meta["watchdog"] = False
