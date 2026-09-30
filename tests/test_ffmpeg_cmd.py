@@ -144,3 +144,63 @@ def test_quality_profile_script_parity():
     assert p.audio_bitrate == "96k"
     a = resolve_for_source("auto", 1080, media_kind="audio")
     assert a.audio_bitrate == "128k"  # صوت فقط 128k
+
+
+# ── الوضع الآمن: أمر السكربت المجرّب حرفياً ──────────────────────────────────
+
+def test_safe_mode_video_matches_proven_script():
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg", "https://cdn.example.com/live/index.m3u8",
+        "rtmps://dc4-1.rtmp.t.me/s/KEY",
+        with_video=True, media_kind="video", has_audio=True, has_video=True,
+        source_type="M3U8 / HLS", safe_mode=True,
+    )
+    j = " ".join(map(str, cmd))
+    # قيم السكربت المجرّب حرفياً
+    assert "-thread_queue_size 4096" in j
+    assert "-map 0:v:0?" in j and "-map 0:a:0?" in j
+    assert "-c:v libx264 -preset veryfast -tune zerolatency" in j
+    assert "-pix_fmt yuv420p" in j
+    assert "-r 25 -g 50" in j
+    assert "-b:v 700k -maxrate 700k -bufsize 700k" in j
+    assert "-c:a aac -b:a 96k -ar 44100 -ac 2" in j
+    assert "-flvflags no_duration_filesize" in j
+    assert "-user_agent Mozilla/5.0" in j
+    # لا خيارات متقدمة قد يرفضها بناء FFmpeg على السيرفر
+    for risky in ("-f hls", "-err_detect", "-max_interleave_delta", "-reconnect",
+                  "-fps_mode", "-vsync", "-allowed_extensions", "-live_start_index",
+                  "-max_muxing_queue_size", "-keyint_min", "-sc_threshold"):
+        assert risky not in j, risky
+
+
+def test_safe_mode_audio_matches_proven_script():
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg", "https://radio.example.com/stream.mp3",
+        "rtmps://example/live/KEY",
+        with_video=False, media_kind="audio", has_audio=True, safe_mode=True,
+    )
+    j = " ".join(map(str, cmd))
+    assert "-map 0:a:0?" in j and "-vn" in j
+    assert "-c:a aac -b:a 128k -ar 44100 -ac 2" in j
+    assert "-flvflags no_duration_filesize" in j
+    assert "-f hls" not in j and "-err_detect" not in j
+
+
+def test_safe_mode_never_forces_hls_demuxer():
+    """حتى لو الرابط m3u8، الوضع الآمن يترك FFmpeg يكتشف التنسيق بنفسه."""
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg", "https://cdn.example.com/a/b.m3u8?x=1",
+        "rtmps://e/live/K", with_video=True, media_kind="video",
+        has_audio=True, has_video=True, source_type="M3U8 / HLS", safe_mode=True,
+    )
+    assert "-f" in cmd and "hls" not in cmd[:cmd.index("-i")]
+
+
+def test_classifier_output_option_not_blamed_on_version():
+    import services.stream as s
+    mgr = object.__new__(s.StreamManager)
+    msg = mgr._classify_ffmpeg_error("Error opening output files: Invalid argument")
+    assert "خيار" in msg and "إصدار FFmpeg لا يدعم" not in msg
+    msg2 = mgr._classify_ffmpeg_error(
+        "Failed to set value '0:a:0' for option 'map': Invalid argument")
+    assert "الإخراج" in msg2

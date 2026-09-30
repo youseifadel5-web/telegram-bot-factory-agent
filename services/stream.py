@@ -272,6 +272,73 @@ def _validate_source_url(url: str) -> str:
             raise ValueError("invalid character in source URL")
     return url
 
+def _build_safe_cmd(
+    ffmpeg: str,
+    source_url: str,
+    rtmp_url: str,
+    quality_profile=None,
+    with_video: bool = False,
+    media_kind: str = "unknown",
+    has_audio: Optional[bool] = None,
+    has_video: Optional[bool] = None,
+    audio_bitrate: str = "128k",
+    source_type: str = "",
+    force_video_for_audio: bool = False,
+) -> list:
+    """الأمر المجرّب حرفياً (سكربت المستخدم العامل) — بلا أي خيارات متقدمة.
+
+    يُستخدم كخطة بديلة تلقائية عندما يرفض بناء FFmpeg على السيرفر أحد
+    الخيارات المتقدمة بخطأ «Error opening output files: Invalid argument».
+    كل خيار هنا مأخوذ من سكربت مجرّب فعلياً (فيديو + صوت).
+    """
+    mk = (media_kind or "").lower()
+    u = source_url.lower().split("?", 1)[0]
+    if mk not in ("audio", "video"):
+        mk = "audio" if any(x in u for x in (".mp3", ".aac", ".m4a", ".ogg", "/radio", "icecast", "shoutcast")) else "video"
+    audio_only = (mk == "audio" and not has_video)
+    is_http = source_url.startswith(("http://", "https://"))
+
+    cmd = [ffmpeg, "-hide_banner", "-loglevel", "warning", "-nostdin"]
+    st = (source_type or "").lower()
+    is_live = any(x in st for x in ("hls", "m3u8", "live", "rtmp", "radio", "iptv")) or any(
+        x in source_url.lower() for x in (".m3u8", "/hls", "/live", ".ts"))
+    if not is_live:
+        cmd += ["-re"]
+    cmd += ["-thread_queue_size", "4096"]
+    if is_http:
+        # نفس ما يفعله السكربت المجرّب: وكيل مستخدم بسيط فقط.
+        cmd += ["-user_agent", "Mozilla/5.0"]
+    cmd += ["-i", source_url]
+
+    if not audio_only:
+        try:
+            h = int(getattr(quality_profile, "height", 0) or 0) or 360
+        except Exception:
+            h = 360
+        h = max(144, min(720, h))
+        vb = str(getattr(quality_profile, "video_bitrate", None) or "700k")
+        cmd += [
+            "-map", "0:v:0?", "-map", "0:a:0?",
+            "-vf", f"scale=-2:{h}",
+            "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+            "-pix_fmt", "yuv420p",
+            "-r", "25", "-g", "50",
+            "-b:v", vb, "-maxrate", vb, "-bufsize", vb,
+            "-c:a", "aac", "-b:a", "96k", "-ar", "44100", "-ac", "2",
+        ]
+    else:
+        cmd += [
+            "-map", "0:a:0?", "-vn",
+            "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+        ]
+    cmd += [
+        "-progress", "pipe:1", "-nostats",
+        "-f", "flv", "-flvflags", "no_duration_filesize",
+        rtmp_url,
+    ]
+    return cmd
+
+
 def build_ffmpeg_cmd(
     ffmpeg: str,
     source_url: str,
@@ -288,6 +355,7 @@ def build_ffmpeg_cmd(
     force_video_for_audio: bool = False,
     quality_profile=None,
     allow_copy: bool = False,
+    safe_mode: bool = False,
 ) -> list:
     """Build a robust FFmpeg command for Telegram RTMPS / FLV live ingest.
 
@@ -300,6 +368,13 @@ def build_ffmpeg_cmd(
     - True audio-only output when source has no video; optional compatibility video fallback
     - FLV flags friendly to indefinite live streams
     """
+    if safe_mode:
+        return _build_safe_cmd(
+            ffmpeg, source_url, rtmp_url, quality_profile=quality_profile,
+            with_video=with_video, media_kind=media_kind, has_audio=has_audio,
+            has_video=has_video, audio_bitrate=audio_bitrate, source_type=source_type,
+            force_video_for_audio=force_video_for_audio,
+        )
     try:
         from config import FFMPEG_TIMEOUT as _CFG_TIMEOUT
         rw_timeout = str(int(_CFG_TIMEOUT) if _CFG_TIMEOUT else 30_000_000)
@@ -640,10 +715,12 @@ class StreamManager:
             has_video=meta.get("has_video"),
             source_type=meta.get("source_type", ""),
             force_video_for_audio=bool(meta.get("force_video_for_audio", False)),
+            safe_mode=bool(meta.get("safe_mode")),
         )
         logger.info(
-            "FFmpeg start stream=%s source_idx=%s vol=%.2f br=%s",
-            stream_id, meta.get("source_index", 0), meta.get("volume", 1), meta.get("audio_bitrate"),
+            "FFmpeg start stream=%s source_idx=%s vol=%.2f br=%s safe=%s",
+            stream_id, meta.get("source_index", 0), meta.get("volume", 1),
+            meta.get("audio_bitrate"), bool(meta.get("safe_mode")),
         )
         try:
             process = subprocess.Popen(
@@ -665,6 +742,7 @@ class StreamManager:
             meta["output_progress_count"] = 0
             meta["data_flow"] = False
             meta["cmd"] = " ".join(cmd[:8]) + " ..."
+            meta["cmd_full"] = cmd
 
             t = threading.Thread(
                 target=self._reader_loop, args=(stream_id, process), daemon=True,
@@ -784,14 +862,19 @@ class StreamManager:
     def _classify_ffmpeg_error(self, line: str) -> str:
         """Map raw FFmpeg stderr to a short Arabic + technical debug message."""
         low = (line or "").lower()
-        if any(x in low for x in ("option not found", "unrecognized option", "unknown option", "invalid argument")):
+        # رفض خيار عند تجهيز الإخراج (كان يُصنَّف خطأً كـ «إصدار قديم»)
+        if any(x in low for x in ("failed to set value", "matches no streams", "error parsing options")):
+            return f"خيار غير مدعوم عند فتح الإخراج — سيتحول البوت للأمر المجرّب: {line[:160]}"
+        if any(x in low for x in ("option not found", "unrecognized option", "unknown option")):
             return f"إصدار FFmpeg لا يدعم أحد الخيارات المطلوبة: {line[:180]}"
+        if "invalid argument" in low:
+            return f"خيار/قيمة مرفوضة عند الإخراج — سيتحول البوت للأمر المجرّب: {line[:160]}"
+        if any(x in low for x in ("error opening output", "failed to open output", "rtmp", "flv muxer")):
+            return f"رفض خادم RTMP الإخراج (تحقق من السيرفر والمفتاح): {line[:160]}"
         if any(x in low for x in ("unknown encoder", "encoder not found", "error while opening encoder")):
             return f"مُرمّز الفيديو غير متوفر في FFmpeg (جرّب تثبيت بناء كامل مع libx264): {line[:140]}"
         if "broken pipe" in low or "connection reset" in low:
             return f"انقطع اتصال RTMP (تحقق من المفتاح/السيرفر): {line[:140]}"
-        if any(x in low for x in ("error opening output", "failed to open output", "rtmp", "flv muxer")):
-            return f"رفض خادم RTMP الإخراج (تحقق من السيرفر والمفتاح): {line[:160]}"
         if any(x in low for x in ("500", "502", "503", "504", "server returned 5")):
             return f"خطأ خادم المصدر (5XX): {line[:120]}"
         if "404" in low or "not found" in low:
@@ -838,18 +921,20 @@ class StreamManager:
                 if len(lines) > 50:
                     lines = lines[-50:]
             meta = self._meta.get(stream_id)
-            if meta and lines and not meta.get("last_error"):
-                # Prefer a line that actually contains the input/HTTP failure.
-                candidates = [
-                    x for x in lines
-                    if any(k in x.lower() for k in (
-                        "http", "server", "invalid", "error", "failed", "unable",
-                        "forbidden", "not found", "tls", "ssl", "playlist", "m3u8",
-                    ))
-                ]
-                chosen = candidates[-1] if candidates else lines[-1]
-                meta["last_error"] = self._classify_ffmpeg_error(chosen)
-                meta["last_error_raw"] = " | ".join(lines[-8:])[:1200]
+            if meta and lines:
+                if not meta.get("last_error"):
+                    # Prefer a line that actually contains the input/HTTP failure.
+                    candidates = [
+                        x for x in lines
+                        if any(k in x.lower() for k in (
+                            "http", "server", "invalid", "error", "failed", "unable",
+                            "forbidden", "not found", "tls", "ssl", "playlist", "m3u8",
+                        ))
+                    ]
+                    chosen = candidates[-1] if candidates else lines[-1]
+                    meta["last_error"] = self._classify_ffmpeg_error(chosen)
+                # احفظ ذيل stderr دائماً للتشخيص (يكشف الخيار/القيمة المرفوضة).
+                meta["last_error_raw"] = " | ".join(lines[-10:])[:1500]
         except Exception as e:
             logger.debug("stderr loop: %s", e)
 
@@ -1058,6 +1143,27 @@ class StreamManager:
         invalid_data = "invalid data" in low or "invalid argument" in low
 
         restarts = meta.get("restarts", 0)
+
+        # فشل فتح الإخراج / خيار غير مدعوم في بناء FFmpeg على السيرفر:
+        # انتقل فوراً للأمر المجرّب (safe mode) وسجّل الأمر الكامل للتشخيص.
+        raw_all = f"{last_err} {meta.get('last_error_raw') or ''}".lower()
+        output_fail = any(x in raw_all for x in (
+            "failed to set value", "matches no streams", "error parsing options",
+            "error opening output", "invalid argument",
+        ))
+        if output_fail and not meta.get("safe_mode"):
+            meta["safe_mode"] = True
+            logger.warning(
+                "Stream %s: switching to SAFE ffmpeg command after output error. cmd=%s",
+                stream_id, " ".join(str(x) for x in (meta.get("cmd_full") or [])),
+            )
+        elif restarts >= 2 and not meta.get("safe_mode") and not meta.get("data_flow"):
+            # فشلين متتاليين بلا أي تدفق بيانات → جرّب الأمر المجرّب أيضاً.
+            meta["safe_mode"] = True
+            logger.warning(
+                "Stream %s: no data flow after %s restarts — trying SAFE ffmpeg command",
+                stream_id, restarts,
+            )
         # A CDN/IPTV endpoint can return a non-media response on one request
         # and succeed after a fresh connection. Retry boundedly before failing.
         if invalid_data and restarts < 3:
