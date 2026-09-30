@@ -72,7 +72,7 @@ async def movies_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             InlineKeyboardButton("🎥 أجنبي أفلام", callback_data="movies_cat:foreign_movies"),
         ],
         [InlineKeyboardButton("⭐ أعلى تقييم", callback_data="movies_cat:top_rated")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")],
     ]
     await query.edit_message_text(
         "🎬 <b>الأفلام</b>\n\n"
@@ -94,7 +94,7 @@ async def movies_search_callback(update: Update, context: ContextTypes.DEFAULT_T
         "مثال: <code>الزعيم</code> أو <code>Inception</code>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🔙 إلغاء", callback_data="movies_menu")]]
+            [[InlineKeyboardButton("❌ إلغاء", callback_data="movies_menu")]]
         ),
     )
 
@@ -125,7 +125,7 @@ async def movies_cat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"🔎 بحث في: <b>{label}</b>\n\nأرسل اسم الفيلم:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("🔙 إلغاء", callback_data="movies_menu")]]
+                    [[InlineKeyboardButton("❌ إلغاء", callback_data="movies_menu")]]
                 ),
             )
             return

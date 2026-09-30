@@ -121,5 +121,5 @@ def stream_control_keyboard(stream_id: int, is_running: bool, can_control: bool 
 
 def rtmp_input_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔙 إلغاء", callback_data="stream_new")]
+        [InlineKeyboardButton("❌ إلغاء", callback_data="stream_new")]
     ])

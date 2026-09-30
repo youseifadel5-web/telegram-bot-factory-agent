@@ -249,8 +249,16 @@ def _validate_source_url(url: str) -> str:
         raise ValueError("unsupported source scheme")
     # Remote user-supplied sources must not reach private/metadata networks.
     if url.startswith(("http://", "https://", "rtmp://", "rtmps://")):
-        from services.security.ssrf import assert_safe_url
-        assert_safe_url(url)
+        try:
+            from services.hls_relay import is_relay_url
+            is_relay = is_relay_url(url)
+        except Exception:
+            is_relay = False
+        if not is_relay:
+            # الرابط الأصلي الخارجي تم فحصه بالفعل قبل تغليفه بالريلاي —
+            # الرابط المحلي (127.0.0.1) خاص بالريلاي ولا يشكل خطراً.
+            from services.security.ssrf import assert_safe_url
+            assert_safe_url(url)
     elif url.startswith(("/", "file:")):
         # Local files are only valid inside this project data directory.
         local_path = url[5:] if url.startswith("file:") else url
@@ -602,8 +610,10 @@ class StreamManager:
         # ── قرار وضع النسخ (بدون ترميز) لمصادر IPTV ──────────────────
         vc = str(meta.get("video_codec") or "").lower()
         st = (meta.get("source_type") or "").lower()
+        ac = str(meta.get("audio_codec") or "").lower()
         allow_copy = (
             bool(meta.get("with_video"))
+            and ac in ("", "aac", "mp3")
             and not meta.get("force_video_for_audio")
             and not meta.get("copy_failed")
             and abs(float(meta.get("volume", 1.0)) - 1.0) < 1e-6
@@ -677,6 +687,11 @@ class StreamManager:
                 meta["last_error"] = err
                 meta["state"] = "error"
                 meta["healthy"] = False
+                if meta.get("copy_mode"):
+                    # الخروج الفوري في وضع النسخ: انزل لإعادة الترميز في المحاولة
+                    # القادمة (كودكس غير متوافق مع FLV مثلاً).
+                    meta["copy_failed"] = True
+                    meta["copy_mode"] = False
                 logger.error("Stream %s early exit: %s", stream_id, err[:200])
                 self.processes.pop(stream_id, None)
                 try:
@@ -924,6 +939,12 @@ class StreamManager:
             return
         if meta.get("relay_mode"):
             return
+        try:
+            from services.hls_relay import is_relay_url
+            if is_relay_url(primary):
+                return  # مُغلّف بالفعل — لا تغليف مزدوج
+        except Exception:
+            pass
         try:
             from services.hls_relay import get_relay_url
             sources = meta.get("sources") or []
@@ -1210,8 +1231,11 @@ class StreamManager:
         vol = meta.get("volume", 1.0)
         wv = meta.get("with_video", False)
         offset = meta.get("start_offset", 0.0)
+        relay_original = meta.get("relay_original")
+        relay_mode = bool(meta.get("relay_mode"))
+        copy_failed = bool(meta.get("copy_failed"))
         self.stop_stream(stream_id)
-        return self.start_stream(
+        pid = self.start_stream(
             stream_id, source, rtmp, br, vol, wv,
             sources=sources, start_offset=offset,
             extra_headers=meta.get("extra_headers") or None,
@@ -1224,6 +1248,14 @@ class StreamManager:
             source_mode=meta.get("source_mode") or "auto",
             user_id=meta.get("user_id"),
         )
+        if pid:
+            m2 = self._meta.get(stream_id) or {}
+            if relay_mode and m2:
+                # استعد رابط الأصل الأصلي للعرض، واحتفظ بقرار النسخ الفاشل
+                m2["relay_original"] = relay_original or m2.get("relay_original")
+                if copy_failed:
+                    m2["copy_failed"] = True
+        return pid
 
     def set_volume(self, stream_id: int, volume: float) -> bool:
         meta = self._meta.get(stream_id)

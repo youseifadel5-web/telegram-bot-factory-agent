@@ -248,6 +248,7 @@ async def _dispatch_menu(update: Update, context, action: str):
         "section_audio": section_audio_callback,
         "section_radio": section_radio_callback,
         "my_library": my_library_callback,
+        "sys_monitor": sys_monitor_callback,
     }
     fn = handlers.get(action)
     if fn:
@@ -258,6 +259,10 @@ async def reply_menu_router(update: Update, context):
     text = (update.message.text or "").strip()
     action = match_reply_action(text)
     if not action or action == "stream_new":
+        return
+    # لا تفتح قائمة إذا كان المستخدم في منتصف إدخال (بحث/رابط/إعداد)
+    ud = context.user_data or {}
+    if any(k.startswith("await_") and ud.get(k) for k in ud):
         return
     # leave any stuck conversation
     clear_workflow_state(context.user_data)
@@ -592,7 +597,7 @@ def main():
         .build()
     )
 
-    menu_regex = r"(الراديو|مكتبتي|البث الحالي|بث مباشر|إنشاء بث|ملفاتي|القرآن|الموسيقى|المحطات|التخزين|الإعدادات|حسابي|لوحة المدير|لوحة التحكم|أفلام|السينما|مسلسلات|IPTV|استخراج بث|اختبار مصدر|المساعدة|شرح البوت|شرح استخدام البوت|المفضلة|إدارة الأدمن|الأدوات|الأرشيف|إدارة البث|الصوتيات|الحساب|الأدمن|الإذاعات)"
+    menu_regex = r"(الراديو|مكتبتي|البث الحالي|بث مباشر|إنشاء بث|ملفاتي|القرآن|الموسيقى|المحطات|التخزين|الإعدادات|حسابي|لوحة المدير|لوحة التحكم|أفلام|السينما|مسلسلات|IPTV|استخراج بث|اختبار مصدر|المساعدة|شرح البوت|شرح استخدام البوت|المفضلة|إدارة الأدمن|الأدوات|الأرشيف|إدارة البث|الصوتيات|الحساب|الأدمن|الإذاعات|حالة السيرفر|^البث$)"
 
     stream_conv = ConversationHandler(
         entry_points=[

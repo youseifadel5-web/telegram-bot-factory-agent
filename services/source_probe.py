@@ -303,12 +303,17 @@ def probe_source(
     if result.get("is_hls"):
         codecs = ""
         variants = result.get("variants") or []
+        best = None
         if variants:
             try:
-                codecs = str((variants[0] or {}).get("codecs") or "")
+                # مرتبة تصاعدياً حسب bandwidth — الأخيرة هي الأعلى جودة
+                best = variants[-1] or {}
+                codecs = str(best.get("codecs") or "")
             except Exception:
-                codecs = ""
-        result["has_video"] = True
+                best, codecs = None, ""
+        has_avc = "avc1" in codecs or "h264" in codecs
+        has_aac = "mp4a" in codecs or "aac" in codecs
+        result["has_video"] = has_avc if codecs else True
         result["has_audio"] = True
         if "avc1" in codecs or "h264" in codecs:
             result["video_codec"] = "h264"
@@ -316,12 +321,11 @@ def probe_source(
             result["audio_codec"] = "aac"
         if "stpp" in codecs or "ttml" in codecs:
             result["has_subtitles"] = True
-        if variants:
+        if best:
             try:
-                top = variants[0] or {}
-                if top.get("width") and top.get("height"):
-                    result["width"] = int(top["width"])
-                    result["height"] = int(top["height"])
+                if best.get("width") and best.get("height"):
+                    result["width"] = int(best["width"])
+                    result["height"] = int(best["height"])
                     result["quality"] = f"{result['width']}x{result['height']}"
             except Exception:
                 pass

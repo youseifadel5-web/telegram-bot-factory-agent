@@ -193,16 +193,19 @@ def _nav(page, has_next, prefix, back="cinema_menu"):
 async def cinema_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 الأفلام", callback_data="cinema_list:movie:1"), InlineKeyboardButton("📺 المسلسلات", callback_data="cinema_list:series:1"), InlineKeyboardButton("🍿 الأنمي", callback_data="cinema_list:anime:1")],
-        [InlineKeyboardButton("🔍 بحث شامل", callback_data="cinema_search"), InlineKeyboardButton("⭐ المفضلة", callback_data="cinema_favs"), InlineKeyboardButton("🔄 تحديث", callback_data="cinema_menu")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🎬 الأفلام", callback_data="cinema_list:movie:1"), InlineKeyboardButton("🎞 المسلسلات", callback_data="cinema_list:series:1"), InlineKeyboardButton("🍿 الأنمي", callback_data="cinema_list:anime:1")],
+        [InlineKeyboardButton("🧒 الكرتون", callback_data="cinema_src:cartoon"), InlineKeyboardButton("🥊 المصارعة", callback_data="cinema_src:wrestling")],
+        [InlineKeyboardButton("🔥 الأكثر مشاهدة", callback_data="cinema_src:most"), InlineKeyboardButton("⭐ الأعلى تقييماً", callback_data="cinema_src:top"), InlineKeyboardButton("🆕 الأحدث", callback_data="cinema_src:latest")],
+        [InlineKeyboardButton("🎭 التصنيفات", callback_data="cinema_src:genres"), InlineKeyboardButton("📅 حسب السنة", callback_data="cinema_src:year")],
+        [InlineKeyboardButton("🔍 بحث شامل", callback_data="cinema_search"), InlineKeyboardButton("⭐ المفضلة", callback_data="cinema_favs"), InlineKeyboardButton("🕒 المشاهدة الأخيرة", callback_data="cinema_recent")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
     ])
-    await _safe_edit(q, "🎬 <b>السينما</b>\n\nاختر القسم الذي تريد تصفحه أو استخدم البحث الشامل.", parse_mode="HTML", reply_markup=kb)
+    await _safe_edit(q, "🍿 <b>السينما</b>\n\nأفلام ومسلسلات وأنمي — تصفح أو ابحث عن أي عنوان.", parse_mode="HTML", reply_markup=kb)
 
 
 async def cinema_search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q=update.callback_query; await q.answer(); context.user_data["await_cinema_search"]=True
-    await _safe_edit(q, "🔍 <b>بحث شامل</b>\n\nأرسل اسم الفيلم أو المسلسل أو الأنمي:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 إلغاء", callback_data="cinema_menu")]]))
+    await _safe_edit(q, "🔍 <b>بحث شامل</b>\n\nأرسل اسم الفيلم أو المسلسل أو الأنمي:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="cinema_menu")]]))
 
 
 async def run_cinema_search(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):

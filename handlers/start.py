@@ -13,9 +13,9 @@ BOT_NAME = "Youseif"
 REQUIRE_PHONE = True
 
 WELCOME_TEXT = (
-    "✨ <b>مرحباً بك في 𝑌𝑜𝑢𝑠𝑒𝑖𝑓 𝑆𝑡𝑟𝑒𝑎𝑚𝑖𝑛𝑔 𝐵𝑜𝑡</b> ✨\n\n"
-    "🎬 سينما • 📡 بث مباشر • 📺 IPTV • 🎵 موسيقى • 📖 قرآن\n"
-    "استمتع بكل الأدوات من القائمة الرئيسية."
+    "✨ <b>مرحباً بك في Youseif Stream Bot</b> ✨\n\n"
+    "🚀 بث مباشر • 📺 IPTV • 🍿 سينما • 📻 راديو • 📖 قرآن\n"
+    "اختر من القائمة الرئيسية بالأسفل."
 )
 
 async def _required_channels():
@@ -164,8 +164,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text = (
             f"🎬 *{BOT_NAME} Stream Bot*\n\n"
-            f"أهلاً {user.first_name or ''}!\n\n"
-            f"القائمة الرئيسية مختصرة — اختر من الأزرار:"
+            f"أهلاً {user.first_name or ''}!"
         )
         await update.message.reply_text(
             text,
@@ -173,7 +172,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_reply_keyboard(admin),
         )
         await update.message.reply_text(
-            "أو من الأزرار المضمنة:",
+            "القائمة الرئيسية — اختر ما تريد:",
             reply_markup=main_menu(admin),
         )
     except Exception as e:
@@ -376,7 +375,7 @@ async def my_library_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
          InlineKeyboardButton("📚 الأرشيف", callback_data="archive_menu")],
         [InlineKeyboardButton("🎬 السينما", callback_data="cinema_menu"),
          InlineKeyboardButton("📻 الراديو", callback_data="section_radio")],
-        [InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
     ])
     await safe_edit_message(
         q,
@@ -398,7 +397,7 @@ async def radio_recent_callback(update: Update, context: ContextTypes.DEFAULT_TY
     recent = context.user_data.get("radio_recent") or []
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("📻 الراديو", callback_data="section_radio")],
-        [InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
     ])
     if not recent:
         await safe_edit_message(q, "🕒 <b>الأخيرة — الراديو</b>\n\nلا يوجد تشغيل حديث.", parse_mode="HTML", reply_markup=kb)
@@ -463,6 +462,8 @@ REPLY_MAP = {
     "👤 حسابي": "my_account",
     "حسابي": "my_account",
     # Admin
+    "🖥 حالة السيرفر": "sys_monitor",
+    "حالة السيرفر": "sys_monitor",
     "👑 لوحة المدير": "admin_panel",
     "لوحة المدير": "admin_panel",
     "لوحة التحكم": "admin_panel",
@@ -485,10 +486,19 @@ REPLY_MAP = {
 
 
 def match_reply_action(text: str):
-    """Match reply keyboard text even with emoji prefix."""
+    """مطابقة نص لوحة الرد مطابقة تامة (مع أو بدون إيموجي البداية).
+
+    المطابقة الجزئية كانت تخطف أي رسالة حرة تحتوي كلمة من القوائم
+    (مثل «أفلام أكشن» أثناء البحث) — لذا نطابق النص الكامل فقط.
+    """
     if not text:
         return None
-    for key, action in sorted(REPLY_MAP.items(), key=lambda x: -len(x[0])):
-        if key in text:
-            return action
+    t = text.strip()
+    # جرّب النص كما هو ثم بعد إزالة أول إيموجي إن وجد
+    if t in REPLY_MAP:
+        return REPLY_MAP[t]
+    if len(t) > 2 and t[0] and t[1] == " ":
+        stripped = t[2:].strip()
+        if stripped in REPLY_MAP:
+            return REPLY_MAP[stripped]
     return None

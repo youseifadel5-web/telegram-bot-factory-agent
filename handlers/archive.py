@@ -64,7 +64,7 @@ async def archive_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     ]
     if is_admin(query.from_user.id, ADMIN_ID):
         kb.append([InlineKeyboardButton("⚙️ حالة القناة", callback_data="arch_status")])
-    kb.append([InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")])
+    kb.append([InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")])
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 

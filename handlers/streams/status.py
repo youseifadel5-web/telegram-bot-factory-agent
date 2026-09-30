@@ -168,7 +168,7 @@ async def _render_streams_list(
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🚀 إنشاء بث جديد", callback_data="stream_new")],
             [InlineKeyboardButton("🔄 تحديث", callback_data="current_stream"),
-             InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")],
+             InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
         ])
     else:
         live_count = sum(1 for s in streams if stream_manager.is_running(int(s.get("id") or 0)))
@@ -203,7 +203,7 @@ async def _render_streams_list(
         buttons.append([
             InlineKeyboardButton("🔄 تحديث", callback_data="current_stream"),
             InlineKeyboardButton("🚀 إنشاء", callback_data="stream_new"),
-            InlineKeyboardButton("🔙 القائمة", callback_data="main_menu"),
+            InlineKeyboardButton("🔙 رجوع", callback_data="main_menu"),
         ])
         kb = InlineKeyboardMarkup(buttons)
 
@@ -395,7 +395,7 @@ async def change_source_receive(update: Update, context: ContextTypes.DEFAULT_TY
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📊 فتح اللوحة", callback_data=f"stream_status:{sid}")],
-            [InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
         ]),
     )
     # If still running, stop & restart so the new source is picked up
@@ -616,7 +616,7 @@ async def _ensure_list_refresh(context, chat_id: int, message_id: int, user_id: 
                 buttons.append([
                     InlineKeyboardButton("🔄 تحديث", callback_data="current_stream"),
                     InlineKeyboardButton("🚀 إنشاء", callback_data="stream_new"),
-                    InlineKeyboardButton("🔙 القائمة", callback_data="main_menu"),
+                    InlineKeyboardButton("🔙 رجوع", callback_data="main_menu"),
                 ])
                 try:
                     await context.bot.edit_message_text(

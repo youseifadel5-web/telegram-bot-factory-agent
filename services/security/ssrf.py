@@ -90,7 +90,12 @@ def _host_is_blocked(host: str) -> bool:
 
 
 def _resolve_ips(host: str):
-    """Resolve a host with a hard 4s cap and a 5-minute cache (None = فشل/مهلة)."""
+    """Resolve a host with a hard 4s cap and a 5-minute cache.
+
+    Returns a list of IPs, or None on DNS failure/timeout. Timeouts are NOT
+    cached as «safe» — the caller fails closed so a slow resolver can't be
+    used to smuggle internal targets past validation.
+    """
     now = time.time()
     hit = _DNS_CACHE.get(host)
     if hit and now - hit[0] < _DNS_TTL:
@@ -98,9 +103,10 @@ def _resolve_ips(host: str):
     try:
         fut = _DNS_EXECUTOR.submit(socket.getaddrinfo, host, None)
         infos = fut.result(timeout=_DNS_TIMEOUT)
+    except concurrent.futures.TimeoutError:
+        fut.cancel()  # best-effort; the worker may still finish and return
+        return None
     except Exception:
-        # DNS failure/timeout → let the HTTP layer fail later with a clear error
-        _DNS_CACHE[host] = (now, None)
         return None
     ips = [info[4][0] for info in infos]
     _DNS_CACHE[host] = (now, ips)
@@ -108,7 +114,11 @@ def _resolve_ips(host: str):
 
 
 def _resolve_blocked(host: str) -> bool:
-    """Resolve DNS and deny if ANY resolved address is non-public."""
+    """Resolve DNS and deny if ANY resolved address is non-public.
+
+    فشل DNS الكامل (نطاق ميت) لا يُحظر هنا — طبقة HTTP سترد خطأً واضحاً؛
+    الفحص هنا مخصص للنطاقات التي تُحل فعلاً إلى عناوين داخلية.
+    """
     ips = _resolve_ips(host)
     if not ips:
         return False

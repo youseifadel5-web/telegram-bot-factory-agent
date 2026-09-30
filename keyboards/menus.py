@@ -48,17 +48,18 @@ def main_reply_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
 
     Keep every existing feature; only regroup the buttons for a cleaner layout.
     """
-    # Rows are written visually left-to-right; Arabic users read the rightmost
-    # primary action first. Main actions are separated from content and tools.
+    # الصفوف تُعرض كما هي من اليسار لليمين — والقارئ العربي يمسح من اليمين،
+    # لذلك الزر الأساسي في كل صف هو الأخير (يظهر في أقصى اليمين).
     rows = [
-        [KeyboardButton("🚀 إنشاء بث"), KeyboardButton("📡 البث الحالي"), KeyboardButton("📺 IPTV")],
-        [KeyboardButton("🎬 السينما"), KeyboardButton("📻 الراديو"), KeyboardButton("📡 البث")],
-        [KeyboardButton("⭐ المفضلة"), KeyboardButton("📚 مكتبتي"), KeyboardButton("🔎 استخراج بث")],
-        [KeyboardButton("📜 الأرشيف"), KeyboardButton("☁️ التخزين"), KeyboardButton("📂 ملفاتي")],
-        [KeyboardButton("ℹ️ شرح البوت"), KeyboardButton("👤 حسابي"), KeyboardButton("⚙️ الإعدادات")],
+        [KeyboardButton("📺 IPTV"), KeyboardButton("📡 البث الحالي"), KeyboardButton("🚀 إنشاء بث")],
+        [KeyboardButton("🎞 المسلسلات"), KeyboardButton("🎬 الأفلام"), KeyboardButton("🍿 السينما")],
+        [KeyboardButton("🎵 الموسيقى"), KeyboardButton("📖 القرآن"), KeyboardButton("📻 الراديو")],
+        [KeyboardButton("🧪 اختبار مصدر"), KeyboardButton("🔎 استخراج بث"), KeyboardButton("⭐ المفضلة")],
+        [KeyboardButton("📜 الأرشيف"), KeyboardButton("📂 ملفاتي"), KeyboardButton("☁️ التخزين")],
+        [KeyboardButton("⚙️ الإعدادات"), KeyboardButton("👤 حسابي"), KeyboardButton("ℹ️ شرح البوت")],
     ]
     if is_admin:
-        rows.append([KeyboardButton("👑 لوحة المدير"), KeyboardButton("🛡 إدارة الأدمن"), KeyboardButton("🖥 حالة السيرفر")])
+        rows.append([KeyboardButton("🖥 حالة السيرفر"), KeyboardButton("🛡 إدارة الأدمن"), KeyboardButton("👑 لوحة المدير")])
     return ReplyKeyboardMarkup(
         rows, resize_keyboard=True, is_persistent=False, one_time_keyboard=False,
         input_field_placeholder="اختر قسماً...",
@@ -66,16 +67,17 @@ def main_reply_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
 
 def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     """Clean three-column inline main menu; all original sections remain available."""
+    # نفس ترتيب لوحة الرد بالضبط حتى لا يختلف الإحساس بين الواجهتين
     buttons = [
-        [InlineKeyboardButton("🚀 إنشاء بث", callback_data="stream_new"), InlineKeyboardButton("📡 البث الحالي", callback_data="current_stream"), InlineKeyboardButton("📺 IPTV", callback_data="iptv_menu")],
-        [InlineKeyboardButton("🎬 السينما", callback_data="cinema_menu"), InlineKeyboardButton("📻 الراديو", callback_data="section_radio"), InlineKeyboardButton("📡 البث", callback_data="section_stream")],
-        [InlineKeyboardButton("⭐ المفضلة", callback_data="favorites_menu"), InlineKeyboardButton("📚 مكتبتي", callback_data="my_library"), InlineKeyboardButton("🔎 استخراج بث", callback_data="extract_menu")],
-        [InlineKeyboardButton("📜 الأرشيف", callback_data="archive_menu"), InlineKeyboardButton("☁️ التخزين", callback_data="storage_menu"), InlineKeyboardButton("📂 ملفاتي", callback_data="my_files")],
-        [InlineKeyboardButton("ℹ️ شرح البوت", callback_data="help_assistant"), InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
-        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")],
+        [InlineKeyboardButton("📺 IPTV", callback_data="iptv_menu"), InlineKeyboardButton("📡 البث الحالي", callback_data="current_stream"), InlineKeyboardButton("🚀 إنشاء بث", callback_data="stream_new")],
+        [InlineKeyboardButton("🎞 المسلسلات", callback_data="series_menu"), InlineKeyboardButton("🎬 الأفلام", callback_data="movies_menu"), InlineKeyboardButton("🍿 السينما", callback_data="cinema_menu")],
+        [InlineKeyboardButton("🎵 الموسيقى", callback_data="music_menu"), InlineKeyboardButton("📖 القرآن", callback_data="quran_menu"), InlineKeyboardButton("📻 الراديو", callback_data="section_radio")],
+        [InlineKeyboardButton("🧪 اختبار مصدر", callback_data="test_source"), InlineKeyboardButton("🔎 استخراج بث", callback_data="extract_menu"), InlineKeyboardButton("⭐ المفضلة", callback_data="favorites_menu")],
+        [InlineKeyboardButton("📜 الأرشيف", callback_data="archive_menu"), InlineKeyboardButton("📂 ملفاتي", callback_data="my_files"), InlineKeyboardButton("☁️ التخزين", callback_data="storage_menu")],
+        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings"), InlineKeyboardButton("👤 حسابي", callback_data="my_account"), InlineKeyboardButton("ℹ️ شرح البوت", callback_data="help_assistant")],
     ]
     if is_admin:
-        buttons.append([InlineKeyboardButton("👑 لوحة المدير", callback_data="admin_panel"), InlineKeyboardButton("🛡 إدارة الأدمن", callback_data="admin_manage"), InlineKeyboardButton("🖥 حالة السيرفر", callback_data="sys_monitor")])
+        buttons.append([InlineKeyboardButton("🖥 حالة السيرفر", callback_data="sys_monitor"), InlineKeyboardButton("🛡 إدارة الأدمن", callback_data="admin_manage"), InlineKeyboardButton("👑 لوحة المدير", callback_data="admin_panel")])
     return InlineKeyboardMarkup(buttons)
 
 def settings_menu() -> InlineKeyboardMarkup:
@@ -259,7 +261,8 @@ def stream_actions_keyboard(stream_id: int, is_running: bool, can_control: bool 
     buttons = [
         control_row,
         quick_row,
-        quality_row + [more_btn],
+        quality_row,
+        [more_btn],
         [
             InlineKeyboardButton("📊 تحديث الحالة", callback_data=f"stream_status:{sid}"),
             InlineKeyboardButton("📡 حالة البث", callback_data="current_stream"),
@@ -331,7 +334,7 @@ def streams_list_keyboard(streams) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(f"#{sid} {title}", callback_data=f"stream_status:{sid}")])
     rows.append([
         InlineKeyboardButton("🚀 إنشاء بث", callback_data="stream_new"),
-        InlineKeyboardButton("🔙 القائمة", callback_data="main_menu"),
+        InlineKeyboardButton("🔙 رجوع", callback_data="main_menu"),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -364,7 +367,7 @@ def section_cinema_menu() -> InlineKeyboardMarkup:
          InlineKeyboardButton("🔍 البحث", callback_data="cinema_search")],
         [InlineKeyboardButton("⭐ المفضلة", callback_data="favorites_menu"),
          InlineKeyboardButton("🕒 المشاهدة الأخيرة", callback_data="cinema_recent")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")],
     ])
 
 
@@ -377,19 +380,18 @@ def section_stream_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔎 استخراج بث", callback_data="extract_menu"),
          InlineKeyboardButton("🧪 اختبار مصدر", callback_data="test_source")],
         [InlineKeyboardButton("⚙️ إعدادات RTMP", callback_data="rtmp_settings")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")],
     ])
 
 
 def section_radio_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📺 المحطات / القنوات", callback_data="stations_menu")],
-        [InlineKeyboardButton("📻 الإذاعات", callback_data="stations_menu"),
+        [InlineKeyboardButton("📻 المحطات", callback_data="stations_menu"),
          InlineKeyboardButton("🎵 الموسيقى", callback_data="music_menu")],
         [InlineKeyboardButton("📖 القرآن / الشيوخ", callback_data="quran_menu")],
         [InlineKeyboardButton("⭐ المفضلة", callback_data="favorites_menu"),
          InlineKeyboardButton("🕒 الأخيرة", callback_data="radio_recent")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")],
     ])
 
 
@@ -399,13 +401,12 @@ def section_audio_menu() -> InlineKeyboardMarkup:
 
 def section_iptv_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📂 مصادر IPTV", callback_data="iptv_menu")],
         [InlineKeyboardButton("🔗 إضافة M3U", callback_data="iptv_import")],
         [InlineKeyboardButton("⭐ المفضلة", callback_data="favorites_menu"),
          InlineKeyboardButton("🔍 بحث", callback_data="iptv_search")],
         [InlineKeyboardButton("🔎 استخراج بث", callback_data="extract_menu"),
          InlineKeyboardButton("🧪 اختبار مصدر", callback_data="test_source")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")],
     ])
 
 
@@ -416,7 +417,7 @@ def section_tools_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔎 استخراج بث", callback_data="extract_menu"),
          InlineKeyboardButton("🧪 اختبار مصدر", callback_data="test_source")],
         [InlineKeyboardButton("💬 شرح البوت", callback_data="help_assistant")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")],
     ])
 
 
@@ -428,7 +429,7 @@ def section_account_menu() -> InlineKeyboardMarkup:
          InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")],
         [InlineKeyboardButton("👤 حسابي", callback_data="my_account"),
          InlineKeyboardButton("ℹ️ عن البوت", callback_data="about_bot")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")],
     ])
 
 

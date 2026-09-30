@@ -33,7 +33,7 @@ async def iptv_import_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "مثال: <code>https://example.com/playlist.m3u</code>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔙 إلغاء", callback_data="iptv_menu")
+            InlineKeyboardButton("❌ إلغاء", callback_data="iptv_menu")
         ]]),
     )
 
@@ -64,9 +64,6 @@ async def iptv_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("🔎 بحث عن قناة", callback_data="iptv_search")],
         [InlineKeyboardButton("📥 استيراد M3U (قائمة جديدة)", callback_data="iptv_import")],
         [InlineKeyboardButton("📺 OscarTV (تلقائي)", callback_data="iptv_preset:oscar")],
-        [InlineKeyboardButton("🇪🇬 مصر (iptv-org)", callback_data="iptv_preset:eg")],
-        [InlineKeyboardButton("🇸🇦 السعودية", callback_data="iptv_preset:sa"),
-         InlineKeyboardButton("📰 أخبار", callback_data="iptv_preset:news")],
         [InlineKeyboardButton("🔄 تحديث القائمة النشطة", callback_data="iptv_refresh")],
     ]
 
@@ -87,15 +84,17 @@ async def iptv_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         lines.append(f"النشطة: <b>{pl.get('name') or 'IPTV'}</b> — {n} قناة\n")
         groups = iptv_svc.groups_from_channels(pl["channels"])
         grp_btns = []
-        for g in groups[:12]:
+        for gi, g in enumerate(groups[:12]):
             cnt = sum(1 for c in pl["channels"] if (c.get("group") or "عام") == g)
             label = f"📺 {g[:14]} ({cnt})"
-            grp_btns.append(InlineKeyboardButton(label, callback_data=f"iptv_group:{g[:40]}"))
+            # فهرس بدل الاسم — اسم المجموعة العربية يتجاوز حد 64 بايت في
+            # callback_data ويفشل إرسال لوحة المفاتيح بالكامل.
+            grp_btns.append(InlineKeyboardButton(label, callback_data=f"iptv_group:{gi}"))
         buttons.extend(chunk_buttons(grp_btns, per_row=2))
     else:
         lines.append("لا توجد قائمة نشطة.\nاختر قائمة جاهزة أو استورد رابط M3U (تُضاف بدون حذف القديمة).")
 
-    buttons.append([InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu")])
+    buttons.append([InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")])
     await query.edit_message_text(
         "\n".join(lines),
         parse_mode="HTML",
@@ -137,7 +136,7 @@ async def iptv_search_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "اكتب اسم القناة أو جزء منه:\n"
         "مثال: <code>MBC</code> أو <code>cbc</code> أو <code>قرآن</code>",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 إلغاء", callback_data="iptv_menu")]]),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="iptv_menu")]]),
     )
 
 
@@ -291,11 +290,21 @@ async def iptv_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TY
 async def iptv_group_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    group = query.data.split(":", 1)[1]
+    payload = query.data.split(":", 1)[1]
     pl = iptv_svc.load_user_playlist(query.from_user.id, context.user_data.get("iptv_active_pl"))
     if not pl:
         await query.answer("لا قائمة", show_alert=True)
         return
+    # التوافق مع الأزرار القديمة: إن كان الحقل رقماً فهو فهرس، وإلا فهو اسم مجموعة
+    if payload.isdigit():
+        groups = iptv_svc.groups_from_channels(pl["channels"])
+        gi = int(payload)
+        if gi >= len(groups):
+            await query.answer("المجموعة غير موجودة", show_alert=True)
+            return
+        group = groups[gi]
+    else:
+        group = payload
     channels = [c for c in pl["channels"] if (c.get("group") or "عام") == group]
     btn_list = []
     for i, c in enumerate(channels[:30]):

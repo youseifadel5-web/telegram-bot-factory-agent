@@ -35,7 +35,10 @@ _server: Optional[ThreadingHTTPServer] = None
 
 
 def _encode_target(url: str, headers: Optional[Dict[str, str]]) -> str:
-    payload = {"u": url, "h": headers or {}}
+    h = dict(headers or {})
+    # علّم النطاق الأصلي حتى لا تُرسل الهيدرات الخاصة إلا لخادمه نفسه
+    h["_origin_host"] = url
+    payload = {"u": url, "h": h}
     raw = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
@@ -57,14 +60,25 @@ def _make_headers(orig_url: str, extra: Dict[str, str]) -> Dict[str, str]:
     host = urlparse(orig_url).netloc
     if host:
         h["Referer"] = f"https://{host}/"
-    # هيدرات خاصة مررها مصدر البث (أوسكار وغيره) — لها الأولوية
+    # هيدرات خاصة مررها مصدر البث (أوسكار وغيره) — لكن لنفس النطاق فقط،
+    # حتى لا تتسرب بيانات اعتماد مصدرٍ ما إلى خادم آخر داخل القائمة.
+    extra_host = urlparse(str(extra.get("_origin_host") or "")).netloc if isinstance(extra, dict) else ""
+    same_host = bool(host) and bool(extra_host) and host == extra_host
     for k, v in (extra or {}).items():
-        if v and str(k).lower() not in ("accept-encoding", "host", "content-length", "connection"):
+        if not v or str(k) == "_origin_host":
+            continue
+        if str(k).lower() in ("accept-encoding", "host", "content-length", "connection"):
+            continue
+        if same_host:
             h[str(k)] = str(v)
     return h
 
 
 def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
+    # فحص SSRF على كل رابط يمر عبر الريلاي — القائمة نفسها قد تحوي
+    # روابط داخلية (metadata/RFC1918) لا يجوز جلبها أو بثها.
+    from services.security.ssrf import assert_safe_url
+    assert_safe_url(url)
     req_headers = _make_headers(url, headers)
     if range_header:
         req_headers["Range"] = range_header
@@ -171,16 +185,35 @@ def _rewrite_playlist(text: str, base_url: str, hdrs: Dict[str, str]) -> str:
     return "\n".join(out)
 
 
+def _serve():
+    global _server
+    try:
+        _server.serve_forever()
+    finally:
+        # لو مات خيط الخدمة لأي سبب — اسمح بإنشاء خادم جديد في الطلب القادم
+        _server = None
+
+
 def _ensure_server() -> ThreadingHTTPServer:
     global _server
     with _lock:
         if _server is None:
             _server = ThreadingHTTPServer(("127.0.0.1", 0), _RelayHandler)
             _server.daemon_threads = True
-            t = threading.Thread(target=_server.serve_forever, daemon=True, name="hls-relay")
+            t = threading.Thread(target=_serve, daemon=True, name="hls-relay")
             t.start()
             logger.info("HLS relay listening on 127.0.0.1:%s", _server.server_address[1])
         return _server
+
+
+def is_relay_url(url: str) -> bool:
+    """True إذا كان الرابط من إنتاج هذا الريلاي (يُسمح به في فحص SSRF)."""
+    if _server is None or not url:
+        return False
+    try:
+        return url.startswith(f"http://127.0.0.1:{_server.server_address[1]}/r/")
+    except Exception:
+        return False
 
 
 def get_relay_url(url: str, headers: Optional[Dict[str, str]] = None) -> str:

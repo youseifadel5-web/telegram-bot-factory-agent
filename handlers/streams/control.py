@@ -176,7 +176,7 @@ async def stream_delete_callback(update: Update, context: ContextTypes.DEFAULT_T
                 f"✅ تم حذف البث #{stream_id} بنجاح.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📡 البثوث", callback_data="current_stream")],
-                    [InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")],
+                    [InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
                 ]),
             )
         else:
@@ -282,7 +282,7 @@ async def stream_clone_callback(update: Update, context: ContextTypes.DEFAULT_TY
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📊 فتح اللوحة", callback_data=f"stream_status:{clone_id}")],
                 [InlineKeyboardButton("📡 البثوث الحالية", callback_data="current_stream")],
-                [InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")],
+                [InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
             ]),
         )
     except Exception as exc:
