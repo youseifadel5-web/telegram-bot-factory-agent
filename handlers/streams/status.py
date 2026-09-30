@@ -425,9 +425,10 @@ async def _ensure_auto_refresh(context, chat_id: int, message_id: int, stream_id
     key = (chat_id, message_id)
     old = _STATUS_TASKS.get(key)
     if old and not old.done():
-        # Already refreshing — make sure it targets the current stream
-        old._target_stream_ids = {stream_id}
-        return  # already refreshing
+        # The old loop keeps rendering the stream it was created for; setting an
+        # attribute on it does nothing. Cancel it and start a fresh loop that
+        # targets the stream the user just opened.
+        old.cancel()
 
     async def _loop():
         try:

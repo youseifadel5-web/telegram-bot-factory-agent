@@ -37,7 +37,7 @@ from handlers.start import (
     check_subscription_callback,
     section_cinema_callback, section_stream_callback, section_iptv_callback,
     section_tools_callback, section_account_callback, section_audio_callback,
-    section_radio_callback, youseif_assistant_callback, my_library_callback, radio_recent_callback,
+    section_radio_callback, my_library_callback, radio_recent_callback,
 )
 from handlers.files import (
     my_files_callback, files_page_callback, file_info_callback,
@@ -81,6 +81,13 @@ from handlers.iptv_help import (
     iptv_preset_callback, iptv_refresh_callback,
     iptv_search_callback, run_iptv_search, iptv_open_playlist_callback,
 )
+from handlers.iptv_catalog import (
+    catalog_menu_callback,
+    catalog_open_callback,
+    catalog_list_callback,
+    catalog_play_callback,
+    catalog_refresh_callback,
+)
 from handlers.cinema import (
     cinema_menu_callback, cinema_search_callback, cinema_list_callback, run_cinema_search,
     cinema_pick_callback, cinema_stream_callback, cinema_action_callback, cinema_quality_callback, cinema_season_callback, cinema_episode_callback,
@@ -106,12 +113,6 @@ from handlers.account import (
 )
 from handlers.drive import (
     handle_drive_link, drive_play_callback, drive_rtmp_callback, drive_replay_callback,
-)
-from handlers.youseif import (
-    youseif_message_handler,
-    youseif_chat_start_callback,
-    youseif_chat_end_callback,
-    youseif_help_callback,
 )
 from handlers.diagnostics import diagnose_command, probe_command, oscar_test_command, hls_command, streams_list_command
 from handlers.admin import (
@@ -246,7 +247,6 @@ async def _dispatch_menu(update: Update, context, action: str):
         "section_account": section_account_callback,
         "section_audio": section_audio_callback,
         "section_radio": section_radio_callback,
-        "youseif_assistant": youseif_assistant_callback,
         "my_library": my_library_callback,
     }
     fn = handlers.get(action)
@@ -592,7 +592,7 @@ def main():
         .build()
     )
 
-    menu_regex = r"(الراديو|مكتبتي|يوسف|البث الحالي|بث مباشر|إنشاء بث|ملفاتي|القرآن|الموسيقى|المحطات|التخزين|الإعدادات|حسابي|لوحة المدير|لوحة التحكم|أفلام|السينما|مسلسلات|IPTV|استخراج بث|اختبار مصدر|المساعدة|شرح البوت|شرح استخدام البوت|المفضلة|إدارة الأدمن|الأدوات|الأرشيف|إدارة البث|الصوتيات|الحساب|الأدمن|الإذاعات)"
+    menu_regex = r"(الراديو|مكتبتي|البث الحالي|بث مباشر|إنشاء بث|ملفاتي|القرآن|الموسيقى|المحطات|التخزين|الإعدادات|حسابي|لوحة المدير|لوحة التحكم|أفلام|السينما|مسلسلات|IPTV|استخراج بث|اختبار مصدر|المساعدة|شرح البوت|شرح استخدام البوت|المفضلة|إدارة الأدمن|الأدوات|الأرشيف|إدارة البث|الصوتيات|الحساب|الأدمن|الإذاعات)"
 
     stream_conv = ConversationHandler(
         entry_points=[
@@ -658,7 +658,6 @@ def main():
     app.add_handler(stream_conv)
 
     app.add_handler(MessageHandler(filters.Regex(menu_regex), reply_menu_router))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, youseif_message_handler), group=2)
 
     app.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
     app.add_handler(CallbackQueryHandler(section_cinema_callback, pattern="^section_cinema$"))
@@ -674,10 +673,6 @@ def main():
     app.add_handler(CallbackQueryHandler(section_account_callback, pattern="^section_account$"))
     app.add_handler(CallbackQueryHandler(section_radio_callback, pattern="^section_radio$"))
     app.add_handler(CallbackQueryHandler(radio_recent_callback, pattern="^radio_recent$"))
-    app.add_handler(CallbackQueryHandler(youseif_assistant_callback, pattern="^youseif_assistant$"))
-    app.add_handler(CallbackQueryHandler(youseif_chat_start_callback, pattern="^youseif_chat_start$"))
-    app.add_handler(CallbackQueryHandler(youseif_chat_end_callback, pattern="^youseif_chat_end$"))
-    app.add_handler(CallbackQueryHandler(youseif_help_callback, pattern="^youseif_help$"))
     app.add_handler(CallbackQueryHandler(my_library_callback, pattern="^my_library$"))
     app.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))
     app.add_handler(CallbackQueryHandler(admin_manage_callback, pattern="^admin_manage$"))
@@ -828,6 +823,13 @@ def main():
     app.add_handler(CallbackQueryHandler(iptv_preset_callback, pattern=r"^iptv_preset:"))
     app.add_handler(CallbackQueryHandler(iptv_refresh_callback, pattern="^iptv_refresh$"))
     app.add_handler(CallbackQueryHandler(iptv_search_callback, pattern="^iptv_search$"))
+
+    # IPTV catalog — باقات القنوات (عالمي)
+    app.add_handler(CallbackQueryHandler(catalog_menu_callback, pattern=r"^cat_menu(:\d+)?$"))
+    app.add_handler(CallbackQueryHandler(catalog_open_callback, pattern=r"^cat_open:\w+$"))
+    app.add_handler(CallbackQueryHandler(catalog_list_callback, pattern=r"^cat_list:\w+:\w+:\d+$"))
+    app.add_handler(CallbackQueryHandler(catalog_play_callback, pattern=r"^cat_play:\w+:\w+:\d+$"))
+    app.add_handler(CallbackQueryHandler(catalog_refresh_callback, pattern=r"^cat_refresh$"))
     app.add_handler(CallbackQueryHandler(help_assistant_callback, pattern="^help_assistant$"))
 
     app.add_handler(CallbackQueryHandler(drive_play_callback, pattern=r"^drive_play:"))

@@ -53,3 +53,9 @@ Thumbs.db
 # Backups
 *.bak
 *_original.py
+
+# Static ffmpeg download + runtime IPTV data
+bin/ffmpeg
+bin/ffprobe
+bin/ffmpeg-static.tar.xz
+data/iptv/

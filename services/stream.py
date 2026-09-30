@@ -100,7 +100,10 @@ def _ffmpeg_help_text(ffmpeg: str) -> str:
         output = (proc.stdout or "") + "\n" + (proc.stderr or "")
     except Exception as exc:
         logger.debug("FFmpeg help probe failed: %s", exc)
-    _FFMPEG_HELP_CACHE[key] = output
+    if output.strip():
+        _FFMPEG_HELP_CACHE[key] = output
+    # An empty result is NOT cached — retry on the next call, otherwise every
+    # later stream silently loses -reconnect/-rw_timeout/-user_agent support.
     return output
 
 
@@ -114,7 +117,7 @@ def _ffmpeg_supports_option(ffmpeg: str, option: str) -> bool:
     if key in _FFMPEG_OPTION_CACHE:
         return _FFMPEG_OPTION_CACHE[key]
     output = _ffmpeg_help_text(ffmpeg)
-    supported = bool(re.search(rf"(?m)^\s*-{re.escape(option)}(?:\s|$)", output)) if output else False
+    supported = bool(re.search(rf"(?m)^\s*-{re.escape(option)}\b", output)) if output else False
     _FFMPEG_OPTION_CACHE[key] = supported
     return supported
 
@@ -133,8 +136,6 @@ def _pick_video_encoder(ffmpeg: str) -> str:
         out = (proc.stdout or "") + (proc.stderr or "")
         if "libx264" in out:
             encoder = "libx264"
-        elif re.search(r"\bH\.264\b|\bh264\b", out, re.I):
-            encoder = "h264"
         elif "mpeg4" in out:
             encoder = "mpeg4"
         else:
@@ -172,16 +173,23 @@ def _try_download_static_ffmpeg() -> Optional[str]:
         LOCAL_FFMPEG_DIR.mkdir(parents=True, exist_ok=True)
         archive = LOCAL_FFMPEG_DIR / "ffmpeg-static.tar.xz"
         logger.info("FFmpeg not found — downloading static build...")
-        urllib.request.urlretrieve(FFMPEG_STATIC_URL, archive)
+        with urllib.request.urlopen(FFMPEG_STATIC_URL, timeout=180) as resp, open(archive, "wb") as out:
+            shutil.copyfileobj(resp, out)
         with tarfile.open(archive, "r:xz") as tar:
-            member = next(
-                (m for m in tar.getmembers() if m.name.endswith("/ffmpeg") and m.isfile()),
-                None,
-            )
-            if not member:
-                return None
-            member.name = "ffmpeg"
-            tar.extract(member, path=LOCAL_FFMPEG_DIR)
+            wanted = {"ffmpeg": None, "ffprobe": None}
+            for m in tar.getmembers():
+                for binname in wanted:
+                    if m.isfile() and m.name.endswith("/" + binname):
+                        wanted[binname] = m
+            for binname, member in wanted.items():
+                if not member:
+                    continue
+                member.name = binname
+                try:
+                    tar.extract(member, path=LOCAL_FFMPEG_DIR, filter="data")
+                except TypeError:  # Python < 3.11.4 has no filter= kwarg
+                    tar.extract(member, path=LOCAL_FFMPEG_DIR)
+                (LOCAL_FFMPEG_DIR / binname).chmod(0o755)
         LOCAL_FFMPEG.chmod(0o755)
         try:
             archive.unlink()
@@ -251,7 +259,7 @@ def _validate_source_url(url: str) -> str:
         if allowed_root != resolved and allowed_root not in resolved.parents:
             raise ValueError("local source path is outside project data")
     # block shell metacharacters even though we use argv list
-    for bad in (";", "|", "&", "`", "$(", "\n", "\r"):
+    for bad in (";", "|", "`", "$(", "\n", "\r"):
         if bad in url:
             raise ValueError("invalid character in source URL")
     return url
@@ -413,7 +421,10 @@ def build_ffmpeg_cmd(
     # HLS manifests can have misleading extensions (e.g. .css/.php). The probe may
     # identify them by content; force the HLS demuxer in that case.
     st = (source_type or "").lower()
-    is_hls = "hls" in st or "m3u8" in st or any(x in source_url.lower() for x in (".m3u8", "/hls"))
+    # Force the HLS demuxer ONLY when the content sniff confirmed HLS or the URL
+    # itself is an .m3u8 manifest. Guessing from substrings like "/hls" breaks
+    # plain MP4/TS streams that merely contain it ("Invalid data found").
+    is_hls = "hls" in st or "m3u8" in st or ".m3u8" in source_url.lower()
     if is_hls:
         cmd += ["-f", "hls"]
 
@@ -456,6 +467,10 @@ def build_ffmpeg_cmd(
         vcodec_block += [
             "-max_muxing_queue_size", "2048", "-g", "50", "-keyint_min", "50", "-sc_threshold", "0",
         ]
+        if canvas:
+            # The lavfi canvas is infinite; without -shortest the stream keeps
+            # broadcasting silent black video long after the source ended.
+            vcodec_block += ["-shortest"]
         if _ffmpeg_supports_option(ffmpeg, "fps_mode"):
             vcodec_block += ["-fps_mode", "cfr"]
         else:
@@ -828,6 +843,14 @@ class StreamManager:
                 meta["healthy"] = True
                 meta["state"] = "on_air"
                 meta["fail_count"] = 0
+                # A stream that is flowing again must get its restart budget back,
+                # otherwise 3 recoveries across weeks kill it permanently.
+                meta["restarts"] = 0
+                try:
+                    from core.stream_states import restart_tracker
+                    restart_tracker.reset(stream_id)
+                except Exception:
+                    pass
             elif stalled:
                 meta["healthy"] = False
                 meta["state"] = "reconnecting"
@@ -835,6 +858,10 @@ class StreamManager:
                 logger.warning("Stream %s output stalled for %.1fs", stream_id, time.time() - last_progress)
                 self._kill_proc(process)
                 self.processes.pop(stream_id, None)
+                # A stall is a source failure like any other: count it and give
+                # the failover logic a chance to switch to a backup source.
+                meta["fail_count"] = meta.get("fail_count", 0) + 1
+                self._maybe_failover(stream_id, meta)
                 self._restart_with_backoff(stream_id)
                 continue
             else:
@@ -852,14 +879,9 @@ class StreamManager:
             return
         meta["healthy"] = False
         meta["state"] = "reconnecting"
-        if process and process.stderr:
-            try:
-                err = process.stderr.read().decode("utf-8", errors="ignore")[-400:]
-                if err:
-                    meta["last_error"] = err.strip()[:300]
-                    logger.warning("Stream %s died: %s", stream_id, err[:200])
-            except Exception:
-                pass
+        # NOTE: no post-mortem process.stderr.read() here — the _stderr_loop
+        # thread already owns that pipe and keeps feeding meta["last_error"];
+        # reading it here raced and could swallow/garbage the tail.
         self.processes.pop(stream_id, None)
         meta["fail_count"] = meta.get("fail_count", 0) + 1
         log_stream_event(stream_id, "reconnecting", str(meta.get("last_error") or "process died"))
@@ -1138,8 +1160,8 @@ class StreamManager:
             return "on_air"
         if self.is_running(stream_id):
             return meta.get("state") or "connecting"
-        if meta.get("state") == "reconnecting":
-            return "reconnecting"
+        if meta.get("state") in ("reconnecting", "error", "failed"):
+            return meta["state"]
         return "stopped"
 
     def get_meta(self, stream_id: int) -> Dict:

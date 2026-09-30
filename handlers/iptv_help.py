@@ -60,6 +60,7 @@ async def iptv_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     lines = ["📡 <b>IPTV — قنوات منظمة</b>\n"]
     buttons = [
+        [InlineKeyboardButton("🌍 باقات القنوات (كل العالم)", callback_data="cat_menu:0")],
         [InlineKeyboardButton("🔎 بحث عن قناة", callback_data="iptv_search")],
         [InlineKeyboardButton("📥 استيراد M3U (قائمة جديدة)", callback_data="iptv_import")],
         [InlineKeyboardButton("📺 OscarTV (تلقائي)", callback_data="iptv_preset:oscar")],
@@ -326,6 +327,24 @@ async def iptv_play_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         src = (ch.get("url") or "").split("#")[0].strip()
         context.user_data["pending_stream_url"] = src
         context.user_data["pending_stream_title"] = ch.get("name") or "IPTV"
+        # Cloudflare-fronted sources (OscarTV وغيرها) ترفض يوزر-إيجنت ffmpeg —
+        # نمرر هيدرات متصفح كاملة مع Referer للموقع الأصلي.
+        hdrs = {}
+        ua = (ch.get("user_agent") or "").strip()
+        referrer = (ch.get("referrer") or "").strip()
+        if ua:
+            hdrs["User-Agent"] = ua
+        if referrer:
+            hdrs["Referer"] = referrer
+        if not hdrs and ch.get("oscar_id"):
+            hdrs = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+                ),
+                "Referer": "https://ostvapp.cam/",
+            }
+        context.user_data["pending_stream_headers"] = hdrs or None
         from handlers.streams import start_rtmp_setup_flags
         await start_rtmp_setup_flags(update, context)
     except Exception as e:

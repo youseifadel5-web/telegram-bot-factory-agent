@@ -11,9 +11,8 @@ from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 _SECRET_ENV_KEYS = (
-    "BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "API_HASH", "API_ID", "OPENAI_API_KEY",
-    "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY",
-    "GROK_API_KEY", "RTMP_ENCRYPTION_KEY", "R2_ACCESS_KEY_ID",
+    "BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "API_HASH", "API_ID",
+    "RTMP_ENCRYPTION_KEY", "R2_ACCESS_KEY_ID",
     "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT", "CF_API_TOKEN", "TMDB_API_KEY",
 )
 

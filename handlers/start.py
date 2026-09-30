@@ -361,11 +361,6 @@ async def section_radio_callback(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
-async def youseif_assistant_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from handlers.youseif import youseif_assistant_entry
-    await youseif_assistant_entry(update, context)
-
-
 
 async def my_library_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

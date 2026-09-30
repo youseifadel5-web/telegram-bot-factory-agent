@@ -331,6 +331,9 @@ def _oscar_to_iptv(ch):
             "tvg_id": tvg_id,
             "oscar_id": ch.get("id"),
             "oscar_name": name,
+            # بعض روابط أوسكار تمرر الحظر فقط بيوزر-إيجنت/ريفيرر معين
+            "user_agent": (s.get("user_agent") or "").strip() or "",
+            "referrer": (s.get("referrer") or s.get("referer") or "").strip() or "",
         })
     return out
 
@@ -367,7 +370,14 @@ async def fetch_oscar_channels(start_id=OSCAR_START_ID, end_id=OSCAR_END_ID, pro
     async with aiohttp.ClientSession(
         connector=connector, timeout=timeout, headers=http_headers
     ) as session:
-        headers = await _oscar_headers(session)
+        try:
+            headers = await _oscar_headers(session)
+        except Exception as e:
+            logger.warning("OscarTV header signing failed: %s", e)
+            raise RuntimeError(
+                "تعذر الوصول لخوادم OscarTV الآن (قد تكون محظورة عبر Cloudflare) — "
+                "جرّب باقات قنوات العالم من iptv-org كبديل موثوق"
+            ) from e
         semaphore = asyncio.Semaphore(OSCAR_CONCURRENCY)
 
         async def one(cid):

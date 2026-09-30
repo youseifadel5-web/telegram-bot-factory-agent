@@ -1,5 +1,40 @@
 # Changelog — KataBump Stable vNext (Selective Merge)
 
+## 2026-09-30 — إصلاحات وتطوير شامل
+
+### Removed
+- حذف الذكاء الاصطناعي بالكامل: services/ai.py، services/ai_tools.py، handlers/youseif.py (مساعد «يوسف»)، كل مفاتيح وإعدادات الـ AI من config.py و .env.example و services/secrets.py، وزر «🤖 يوسف» من القائمة الرئيسية.
+
+### Added
+- 🌍 كتالوج باقات القنوات (services/iptv_catalog.py + handlers/iptv_catalog.py) من iptv-org:
+  - باقات بتصنيفات وأيقونات (أفلام، مسلسلات، أخبار، رياضة...) + باقات دول (مصر، السعودية، ...).
+  - داخل كل باقة: قنوات عربية / أجنبية / مترجمة / الكل.
+  - «مترجم» = اسم القناة يحمل علامة ترجمة، أو ffprobe اكتشف مسار ترجمة أثناء التشغيل (يُحفظ في data/iptv/catalog/catalog_cc.json).
+  - تخزين مؤقت لكل باقة (6 ساعات) + مجموعة اللغة العربية (24 ساعة) مع زر «تحديث الباقات».
+  - دعم user_agent/referrer لكل قناة عند التشغيل.
+
+### Fixed (FFmpeg / streaming)
+- قبول `&` في روابط المصادر (كان يرفض روابط CDN/IPTV الموقعة خطأً).
+- canvas الصوت: إضافة `-shortest` حتى لا يستمر البث الأسود بعد انتهاء المصدر.
+- تنزيل ffprobe مع ffmpeg الثابت + تفضيله في الفحص + `-loglevel info` في فحص ffmpeg الاحتياطي (كان يخفي أسطر Stream# التي يعتمد عليها المحلل).
+- تصفير عداد إعادة التشغيل عند عودة البث للصحة (كان يموت نهائياً بعد 3 استرجاعات).
+- الـ stall يحسب فشلاً ويشغّل failover للمصدر الاحتياطي (كان يعيد نفس المصدر للأبد).
+- عدم كَش نص المساعدة الفارغ (كان يقفل خيارات reconnect/user_agent للأبد).
+- حذف fallback الترميز «h264» غير الموجود (libx264 → mpeg4).
+- regex خيارات FFmpeg يقبل `-fps_mode[:stream]`.
+- `-f hls` يُفرض فقط عند تأكيد الفحص (كان يفسد MP4/TS بروابط فيها /hls).
+- إزالة قراءة stderr المتسابقة عند موت العملية.
+- تنزيل static بمهلة زمنية + استخراج آمن (filter="data").
+- get_state يعرض failed/error بدل stopped.
+- تحديث لوحة الحالة يستهدف البث الصحيح (كان يجدد بثاً قديماً).
+- soft-pass في الفحص يتطلب تأكيد HTTP (روابط الموت لا تمرر الآن) + مهلة شبكة rw_timeout.
+- كشف مسارات الترجمة في الفحص (has_subtitles).
+
+### Fixed (OscarTV / Cloudflare)
+- تمرير هيدرات متصفح (User-Agent + Referer) عند تشغيل قنوات أوسكار — كانت تظهر ولا تعمل بسبب حظر Cloudflare ليوزر-إيجنت ffmpeg.
+- رسالة عربية واضحة عند فشل جلب أوسكار مع اقتراح باقات iptv-org كبديل.
+- حفظ user_agent/referrer لكل رابط من API أوسكار عند توفره.
+
 المشروع الحالي (telegram-bot-factory-agent-main) هو Source of Truth؛ كل ما يلي دمج انتقائي من نسخ KataBump القديمة (V6_REBUILT / STREAM_FIXES / UI_FINAL / CLASSIC_IRON) مع الحفاظ على كل الميزات القائمة.
 
 ## Added

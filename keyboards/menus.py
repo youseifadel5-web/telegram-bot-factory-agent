@@ -71,7 +71,8 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🎬 السينما", callback_data="cinema_menu"), InlineKeyboardButton("📻 الراديو", callback_data="section_radio"), InlineKeyboardButton("📡 البث", callback_data="section_stream")],
         [InlineKeyboardButton("⭐ المفضلة", callback_data="favorites_menu"), InlineKeyboardButton("📚 مكتبتي", callback_data="my_library"), InlineKeyboardButton("🔎 استخراج بث", callback_data="extract_menu")],
         [InlineKeyboardButton("📜 الأرشيف", callback_data="archive_menu"), InlineKeyboardButton("☁️ التخزين", callback_data="storage_menu"), InlineKeyboardButton("📂 ملفاتي", callback_data="my_files")],
-        [InlineKeyboardButton("ℹ️ شرح البوت", callback_data="help_assistant"), InlineKeyboardButton("🤖 يوسف", callback_data="youseif_assistant"), InlineKeyboardButton("👤 حسابي", callback_data="my_account"), InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")],
+        [InlineKeyboardButton("ℹ️ شرح البوت", callback_data="help_assistant"), InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
+        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")],
     ]
     if is_admin:
         buttons.append([InlineKeyboardButton("👑 لوحة المدير", callback_data="admin_panel"), InlineKeyboardButton("🛡 إدارة الأدمن", callback_data="admin_manage"), InlineKeyboardButton("🖥 حالة السيرفر", callback_data="sys_monitor")])

@@ -141,6 +141,13 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # ".m3u8" or ".mp4" in the URL.
             context.user_data["_probe_has_video"] = bool(probe.get("has_video"))
             context.user_data["_probe_has_audio"] = bool(probe.get("has_audio"))
+            # القناة اللي فيها مسار ترجمة تتعلم ✅ في كتالوج الباقات
+            try:
+                if probe.get("has_subtitles"):
+                    from services.iptv_catalog import mark_cc
+                    mark_cc(source)
+            except Exception:
+                pass
             if not probe.get("ok"):
                 # soft: still try start for m3u8 / drive / local
                 src_l = (source or "").lower()
@@ -345,22 +352,7 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         offset_note = f"\n⏱ بداية من: {start_offset:.0f} ثانية" if start_offset else ""
         fail = ("فشل" in str(status)) or ("🔴" in str(status)) or ("غير متوفر" in str(status))
         kb = main_reply_keyboard(is_admin(user_id, ADMIN_ID))
-        if fail:
-            try:
-                from handlers.youseif import store_help_context, youseif_help_button
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                store_help_context(
-                    context,
-                    f"بث #{stream_id} | {title}\nالحالة: {status}\nالمصدر: {(source or '')[:220]}",
-                )
-                kb = InlineKeyboardMarkup(
-                    youseif_help_button()
-                    + [[InlineKeyboardButton("📡 البث الحالي", callback_data="current_stream")]]
-                    + [[InlineKeyboardButton("🔙 القائمة", callback_data="main_menu")]]
-                )
-            except Exception:
-                pass
-        tip = "اضغط «استعن بيوسف» لشرح السبب والحل." if fail else "يمكنك إدارة البث من «📡 البث الحالي»"
+        tip = "إذا فشل البث راجع رابط المصدر ومفتاح RTMP، ثم أعد المحاولة." if fail else "يمكنك إدارة البث من «📡 البث الحالي»"
         await _safe_update_reply(
             update,
             f"{'⚠️' if fail else '✅'} تم إنشاء البث #{stream_id}\n\n"

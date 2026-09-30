@@ -363,6 +363,14 @@ def probe_source(
         return result
 
     probe = shutil.which("ffprobe") or ffmpeg
+    try:
+        # Prefer the ffprobe that ships next to the downloaded static ffmpeg.
+        from services.stream import LOCAL_FFMPEG_DIR
+        _static_ffprobe = LOCAL_FFMPEG_DIR / "ffprobe"
+        if _static_ffprobe.exists() and os.access(_static_ffprobe, os.X_OK):
+            probe = str(_static_ffprobe)
+    except Exception:
+        pass
     is_ffprobe = "ffprobe" in (probe or "")
 
     try:
@@ -375,6 +383,7 @@ def probe_source(
             http_args = [
                 "-user_agent", ua,
                 "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+                "-rw_timeout", "15000000",
             ]
             if headers:
                 hdr_lines = []
@@ -400,8 +409,10 @@ def probe_source(
                 url,
             ]
         else:
+            # NOTE: keep loglevel "info" — the fallback parser below keys on the
+            # "Stream #0:..." lines, which ffmpeg only prints at info level.
             cmd = [
-                probe, "-hide_banner", "-loglevel", "error",
+                probe, "-hide_banner", "-loglevel", "info",
                 *http_args,
                 "-analyzeduration", "10000000",
                 "-probesize", "10000000",
@@ -420,8 +431,10 @@ def probe_source(
                 streams = data.get("streams") or []
                 audio_streams = [s for s in streams if s.get("codec_type") == "audio"]
                 video_streams = [s for s in streams if s.get("codec_type") == "video"]
+                sub_streams = [s for s in streams if s.get("codec_type") == "subtitle"]
                 result["has_audio"] = len(audio_streams) > 0
                 result["has_video"] = len(video_streams) > 0
+                result["has_subtitles"] = len(sub_streams) > 0
                 result["format"] = fmt.get("format_name")
                 if fmt.get("size"):
                     try:
@@ -491,6 +504,7 @@ def probe_source(
             result["ok"] = True
             result["has_audio"] = "audio" in err_l or "aac" in err_l or "mp3" in err_l
             result["has_video"] = "video" in err_l or "h264" in err_l or ".m3u8" in url.lower()
+            result["has_subtitles"] = "subtitle" in err_l
             result["media_kind"] = detect_media_kind(url, result)
             return result
 
@@ -533,7 +547,11 @@ def probe_source(
             )
             soft_ext = (".m3u8", ".mp3", ".aac", ".m4a", ".mp4", ".ts", ".flv", ".mkv")
             path_only = u.split("?")[0]
-            if (
+            # Soft-pass ONLY if the plain HTTP fetch already succeeded (sniff
+            # returned a content type). Dead/403 URLs must fail here instead of
+            # starting a doomed FFmpeg restart loop.
+            http_ok = bool(result.get("content_type"))
+            if http_ok and (
                 any(h in u for h in soft_hosts)
                 or any(path_only.endswith(e) for e in soft_ext)
                 or "/movie/" in u or "/series/" in u or "/live/" in u
@@ -544,7 +562,7 @@ def probe_source(
                 result["format"] = "soft"
                 result["media_kind"] = detect_media_kind(url, result)
                 return result
-            if short in ("تعذر قراءة بيانات المصدر", "غير معروف") or "json" in short.lower():
+            if http_ok and (short in ("تعذر قراءة بيانات المصدر", "غير معروف") or "json" in short.lower()):
                 result["ok"] = True
                 result["has_audio"] = True
                 result["has_video"] = True
