@@ -138,3 +138,57 @@ async def streams_list_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
     except Exception as e:
         await update.message.reply_text(f"❌ {e}")
+
+
+async def sources_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تشخيص مصادر المحتوى: هل كل مصدر بيرجّع بيانات فعلًا من السيرفر ده؟
+
+    مهم لأن مصادر التطبيق بترفض عناوين مراكز البيانات أحيانًا — الأمر ده
+    بيقول بالظبط أي مصدر شغّال وأي واحد محجوب، بدل تخمين.
+    """
+    if not update.effective_user or not _admin(update.effective_user.id):
+        return
+    msg = await update.message.reply_text("🔎 بختبر مصادر المحتوى...")
+    lines = ["🔎 <b>حالة مصادر المحتوى</b>\n"]
+    try:
+        from services.app_sources import golive, fasel, firebase_catalog, channels
+        from services.app_sources import http as src_http
+
+        # 1) حكاية / GoLive (أفلام)
+        try:
+            movies = await golive.movies(mode="popular", limit=3)
+            lines.append(f"{'🟢' if movies else '🔴'} حكاية/GoLive — أفلام: {len(movies or [])}")
+        except Exception as e:
+            lines.append(f"🔴 حكاية/GoLive — خطأ: {str(e)[:80]}")
+        # 2) حكاية / GoLive (مسلسلات)
+        try:
+            series = await golive.series(search="مسلسل", limit=3)
+            lines.append(f"{'\U0001F7E2' if series else '\U0001F534'} حكاية/GoLive — مسلسلات: {len(series or [])}")
+        except Exception as e:
+            lines.append(f"🔴 حكاية/GoLive (مسلسلات) — خطأ: {str(e)[:80]}")
+        # 3) فاصل HD
+        try:
+            home = await fasel.home_sections()
+            n = sum(len(v or []) for v in (home or {}).values()) if isinstance(home, dict) else 0
+            lines.append(f"{'🟢' if n else '🔴'} فاصل HD: {n} عنصر")
+        except Exception as e:
+            lines.append(f"🔴 فاصل HD — خطأ: {str(e)[:80]}")
+        # 4) فايربيس
+        try:
+            cat = await firebase_catalog.load_catalog()
+            ch = len((cat or {}).get("channels") or [])
+            lines.append(f"{'🟢' if cat else '🔴'} فايربيس: {ch} قناة")
+        except Exception as e:
+            lines.append(f"🔴 فايربيس — خطأ: {str(e)[:80]}")
+        # 5) الراديو (محلي، من ملف)
+        try:
+            cats = channels.load_radio_catalog()
+            lines.append(f"{'🟢' if cats else '🔴'} الراديو (محلي): {len(cats)} تصنيف / "
+                         f"{sum(len(c.get('items', [])) for c in cats)} محطة")
+        except Exception as e:
+            lines.append(f"🔴 الراديو — خطأ: {str(e)[:80]}")
+        # 6) نوع عميل الطلبات
+        lines.append(f"\nℹ️ curl_cffi (بصمة Chrome): {'مفعّل' if src_http._HAS_CFFI else 'غير متاح'}")
+    except Exception as e:
+        lines.append(f"❌ خطأ عام: {e}")
+    await msg.edit_text("\n".join(lines), parse_mode="HTML")

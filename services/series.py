@@ -1,95 +1,70 @@
-"""Series API client for the supplied DramaRamadan API."""
+"""واجهة المسلسلات — تمرير رقيق لطبقة المصادر الجديدة (حكاية/GoLive).
+
+نفس فكرة services/movies.py: نفس أسماء الدوال القديمة حتى لا تتغير الشاشات،
+لكن الطلبات تمر عبر `services.app_sources` (بصمة Chrome ثم aiohttp).
+"""
 from __future__ import annotations
-import asyncio, json, logging
-import aiohttp
-logger=logging.getLogger(__name__)
-BASE_URL="https://admin.dramaramadan.net/api"
 
-def _headers():
-    return {"User-Agent":"okhttp/4.12.0","Accept-Encoding":"gzip","Accept":"application/json","Connection":"keep-alive"}
+import logging
+from typing import Any, Dict, List, Optional
 
-async def _get(path, params=None, attempts=4):
-    last=None
-    for i in range(attempts):
-        try:
-            async with aiohttp.ClientSession(headers=_headers()) as s:
-                async with s.get(f"{BASE_URL}{path}", params=params or {}, timeout=aiohttp.ClientTimeout(total=20)) as r:
-                    if r.status != 200: raise RuntimeError(f"HTTP {r.status}")
-                    return await r.json(content_type=None)
-        except Exception as e:
-            last=e
-            if i+1<attempts: await asyncio.sleep(min(2**i,5))
-    logger.warning("series API failed %s: %s", path, last)
-    return None
+from services.app_sources import golive
 
-def _items(d):
-    if isinstance(d,list): return d
-    if isinstance(d,dict): return d.get("data") or d.get("results") or d.get("items") or []
-    return []
+logger = logging.getLogger(__name__)
 
-async def search_series(q, limit=20):
-    q=(q or "").strip()
-    if len(q)<2: return []
-    d=await _get("/series/", {"page":1,"limit":limit,"search":q,"app_version":9})
-    return _items(d)[:limit]
+BASE_URL = golive.BASE_URL
 
-async def get_seasons(series_id):
-    d=await _get("/seasons/", {"series_id":series_id})
-    seasons=_items(d)
-    return seasons or [{"id":series_id,"season_number":1}]
-
-async def get_episodes(season_id):
-    d=await _get("/episodes/", {"season_id":season_id})
-    return _items(d)
-
-async def get_watch_links(episode_id):
-    d=await _get("/episodes/show.php", {"id":episode_id})
-    if isinstance(d,dict):
-        data=d.get("data") or d
-        links = (
-            data.get("watch_links")
-            or data.get("sources")
-            or data.get("streams")
-            or data.get("links")
-            or []
-        )
-        out = []
-        for x in links:
-            if not isinstance(x, dict):
-                continue
-            url = x.get("url") or x.get("link") or x.get("stream_url") or x.get("streamUrl")
-            if url:
-                y = dict(x)
-                y["url"] = url
-                out.append(y)
-        return out
-    return []
+# ذاكرة مؤقتة بسيطة: season_id → قائمة الحلقات (تُملأ عند جلب المواسم)
+_SEASON_EPISODES: Dict[str, List[Dict]] = {}
+_EPISODE_LINKS: Dict[str, List[Dict]] = {}
 
 
-async def get_download_links(episode_id):
-    """Return download-oriented links only (direct URL, no Telegram upload)."""
-    d = await _get("/episodes/show.php", {"id": episode_id})
-    if not isinstance(d, dict):
-        return []
-    data = d.get("data") or d
-    candidates = (
-        data.get("download_links")
-        or data.get("downloads")
-        or data.get("download")
-        or []
-    )
+async def search_series(q: str, limit: int = 20) -> List[Dict]:
+    rows = await golive.series(search=q, limit=limit)
     out = []
-    for x in candidates:
-        if not isinstance(x, dict):
-            continue
-        url = x.get("url") or x.get("link") or x.get("download_url")
-        if url:
-            y = dict(x)
-            y["url"] = url
-            y["type"] = "download"
-            out.append(y)
-    # Also accept top-level download_url
-    top = data.get("download_url") or data.get("download_link")
-    if top and isinstance(top, str) and top.startswith("http"):
-        out.append({"url": top, "quality": "تحميل", "type": "download"})
+    for r in rows or []:
+        item = dict(r)
+        item.setdefault("kind", "series")
+        item["source"] = item.get("source") or "golive"
+        out.append(item)
     return out
+
+
+async def get_seasons(series_id: Any) -> List[Dict]:
+    """يرجّع المواسم، ويخزّن حلقات كل موسم داخليًا لـ get_episodes."""
+    detail = await golive.series_detail(series_id)
+    if not detail:
+        return []
+    seasons_out: List[Dict] = []
+    for season in detail.get("seasons") or []:
+        sid = str(season.get("season") or season.get("id") or "")
+        episodes = []
+        for ep in season.get("episodes") or []:
+            e = dict(ep)
+            eid = str(e.get("id") or "")
+            if eid:
+                _EPISODE_LINKS[eid] = list(e.get("sources") or [])
+            episodes.append(e)
+        _SEASON_EPISODES[sid] = episodes
+        seasons_out.append({
+            "id": sid,
+            "name": season.get("title") or f"الموسم {sid}",
+            "episode_count": len(episodes),
+        })
+    return seasons_out
+
+
+async def get_episodes(season_id: Any) -> List[Dict]:
+    return list(_SEASON_EPISODES.get(str(season_id), []))
+
+
+def _links_for(episode_id: Any) -> List[Dict]:
+    return list(_EPISODE_LINKS.get(str(episode_id), []))
+
+
+async def get_watch_links(episode_id: Any) -> List[Dict]:
+    return _links_for(episode_id)
+
+
+async def get_download_links(episode_id: Any) -> List[Dict]:
+    return _links_for(episode_id)
