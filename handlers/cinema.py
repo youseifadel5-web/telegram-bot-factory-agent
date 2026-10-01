@@ -235,7 +235,7 @@ async def cinema_search_page_callback(update, context):
 
 
 async def cinema_src_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Source picker for multi-API categories (Oscar / Hekaya)."""
+    """Source picker for the Hekaya source."""
     q = update.callback_query
     try:
         await q.answer()
@@ -255,7 +255,6 @@ async def cinema_src_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     }
     title = labels.get(kind, "🎬 السينما")
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Oscar", callback_data=f"cinema_list_src:oscar:{kind}")],
         [InlineKeyboardButton("📺 Hekaya TV", callback_data=f"cinema_list_src:hekaya:{kind}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data="cinema_menu")],
     ])
@@ -263,42 +262,26 @@ async def cinema_src_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def cinema_list_src_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List results for a chosen source + category."""
+    """List results for a chosen category from the Hekaya source."""
     q = update.callback_query
     try:
         await q.answer()
     except Exception:
         pass
     parts = (q.data or "").split(":")
-    # cinema_list_src:oscar:most or with page cinema_list_src:oscar:most:2
-    source = parts[1] if len(parts) > 1 else "oscar"
+    # cinema_list_src:hekaya:most or with page cinema_list_src:hekaya:most:2
+    source = "hekaya"
     kind = parts[2] if len(parts) > 2 else "most"
     page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1
     results = []
     try:
-        if source == "oscar":
-            sort_map = {"most": "most_viewed", "top": "top_rated", "latest": "latest"}
-            sort_by = sort_map.get(kind, "most_viewed")
-            if kind in ("most", "top", "latest"):
-                results = await cinema.oscar_api.get_movies(page=page, limit=PAGE_SIZE, sort_by=sort_by)
-            elif kind == "anime":
-                results = await cinema.oscar_api.get_anime_movies(page=page, limit=PAGE_SIZE)
-            else:
-                # wrestling/cartoon/genres — try movies list as best effort without inventing
-                results = await cinema.oscar_api.get_movies(page=page, limit=PAGE_SIZE)
+        from services import hekaya
+        if kind in ("most", "top", "latest"):
+            results = await hekaya.get_movies(page=page, limit=PAGE_SIZE, sort=kind)
         else:
-            # Hekaya TV — independent path
-            try:
-                from services import hekaya
-                if kind in ("most", "top", "latest"):
-                    results = await hekaya.get_movies(page=page, limit=PAGE_SIZE, sort=kind)
-                else:
-                    results = await hekaya.get_movies(page=page, limit=PAGE_SIZE)
-            except Exception as e:
-                logger.warning("hekaya list: %s", e)
-                results = []
+            results = await hekaya.get_movies(page=page, limit=PAGE_SIZE)
     except Exception as e:
-        logger.exception("cinema_list_src: %s", e)
+        logger.warning("hekaya list: %s", e)
         results = []
 
     if not results:
@@ -331,12 +314,10 @@ async def cinema_list_src_callback(update: Update, context: ContextTypes.DEFAULT
 async def cinema_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q=update.callback_query; await q.answer(); parts=q.data.split(":"); kind=parts[1]; page=int(parts[2]) if len(parts)>2 else 1
     try:
-        if kind=="movie": results=await cinema.oscar_api.get_movies(page=page,limit=PAGE_SIZE)
-        elif kind=="series": results=await cinema.oscar_api.get_series(page=page,limit=PAGE_SIZE)
-        else:
-            movies=await cinema.oscar_api.get_anime_movies(page=page,limit=PAGE_SIZE//2)
-            series=await cinema.oscar_api.get_anime_series(page=page,limit=PAGE_SIZE//2)
-            results=movies+series
+        from services import hekaya
+        if kind=="movie": results=await hekaya.get_movies(page=page,limit=PAGE_SIZE)
+        elif kind=="series": results=await hekaya.get_series(page=page,limit=PAGE_SIZE)
+        else: results=await hekaya.get_movies(page=page,limit=PAGE_SIZE)
     except Exception:
         logger.exception("cinema list"); results=[]
     results=[cinema.normalize(x,kind) for x in results if isinstance(x,dict)]

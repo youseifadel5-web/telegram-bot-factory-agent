@@ -114,7 +114,7 @@ from handlers.account import (
 from handlers.drive import (
     handle_drive_link, drive_play_callback, drive_rtmp_callback, drive_replay_callback,
 )
-from handlers.diagnostics import diagnose_command, probe_command, oscar_test_command, hls_command, streams_list_command
+from handlers.diagnostics import diagnose_command, probe_command, hls_command, streams_list_command
 from handlers.admin import (
     admin_panel_callback, admin_stats_callback, admin_users_callback,
     admin_user_detail_callback, admin_approve_callback, admin_reject_callback,
@@ -657,7 +657,6 @@ def main():
     app.add_handler(CommandHandler("stations", stations_command))
     app.add_handler(CommandHandler("diagnose", diagnose_command))
     app.add_handler(CommandHandler("probe", probe_command))
-    app.add_handler(CommandHandler("oscar_test", oscar_test_command))
     app.add_handler(CommandHandler("hls", hls_command))
     app.add_handler(CommandHandler("streams", streams_list_command))
     app.add_handler(stream_conv)

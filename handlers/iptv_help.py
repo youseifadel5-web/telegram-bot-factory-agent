@@ -63,7 +63,6 @@ async def iptv_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("🌍 باقات القنوات (كل العالم)", callback_data="cat_menu:0")],
         [InlineKeyboardButton("🔎 بحث عن قناة", callback_data="iptv_search")],
         [InlineKeyboardButton("📥 استيراد M3U (قائمة جديدة)", callback_data="iptv_import")],
-        [InlineKeyboardButton("📺 OscarTV (تلقائي)", callback_data="iptv_preset:oscar")],
         [InlineKeyboardButton("🔄 تحديث القائمة النشطة", callback_data="iptv_refresh")],
     ]
 
@@ -178,52 +177,6 @@ async def iptv_preset_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     key = query.data.split(":", 1)[1]
 
-    # --- OscarTV special source ---
-    if key == "oscar":
-        await query.edit_message_text(
-            "📺 جاري جلب OscarTV بسرعة...\n"
-            "سيتم فحص عدد كبير بالتوازي مع إبقاء البوت مستجيباً."
-        )
-        try:
-            cached = iptv_svc.load_oscar_cache()
-            if cached:
-                channels = iptv_svc.filter_visible_channels(cached)
-                await query.edit_message_text(
-                    f"📂 تم تحميل الكاش: {len(channels)} رابط\nجاري الحفظ في قائمتك..."
-                )
-            else:
-                async def progress(cid, total, n):
-                    try:
-                        await query.edit_message_text(
-                            f"📺 OscarTV: جاري الجلب... {cid}/{total}\nتم العثور على {n} رابط"
-                        )
-                    except Exception:
-                        pass
-                channels = iptv_svc.filter_visible_channels(await iptv_svc.fetch_oscar_channels(progress_cb=progress))
-            if not channels:
-                await query.edit_message_text("❌ لم يتم العثور على قنوات OscarTV.")
-                return
-            iptv_svc.save_user_playlist(query.from_user.id, "OscarTV", channels)
-            context.user_data["iptv_source_url"] = "oscar://auto"
-            try:
-                from pathlib import Path
-                import json
-                meta = Path(__file__).resolve().parent.parent / "data" / "iptv" / f"user_{query.from_user.id}_meta.json"
-                meta.write_text(json.dumps({"url": "oscar://auto", "name": "OscarTV"}, ensure_ascii=False), encoding="utf-8")
-            except Exception:
-                pass
-            await db.add_audit(query.from_user.id, "iptv_preset", "oscar", f"n={len(channels)}")
-            await query.edit_message_text(
-                f"✅ تم استيراد <b>{len(channels)}</b> رابط من OscarTV\n"
-                f"يمكنك البحث والتشغيل من قائمة IPTV.",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📡 فتح التصنيفات", callback_data="iptv_menu")]]),
-            )
-        except Exception as e:
-            logger.exception("OscarTV import failed")
-            await query.edit_message_text(f"❌ فشل جلب OscarTV: {e}")
-        return
-
     preset = IPTV_PRESETS.get(key)
     if not preset:
         await query.answer("غير متوفر", show_alert=True)
@@ -272,12 +225,8 @@ async def iptv_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     await query.edit_message_text("🔄 جاري التحديث من المصدر...")
     try:
-        if url.startswith("oscar://"):
-            channels = await iptv_svc.fetch_oscar_channels()
-            name = "OscarTV محدّث"
-        else:
-            channels = iptv_svc.filter_visible_channels(await iptv_svc.fetch_m3u(url))
-            name = "IPTV محدّث"
+        channels = iptv_svc.filter_visible_channels(await iptv_svc.fetch_m3u(url))
+        name = "IPTV محدّث"
         iptv_svc.save_user_playlist(query.from_user.id, name, channels)
         await query.edit_message_text(
             f"✅ تم التحديث — {len(channels)} قناة",
@@ -336,7 +285,7 @@ async def iptv_play_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         src = (ch.get("url") or "").split("#")[0].strip()
         context.user_data["pending_stream_url"] = src
         context.user_data["pending_stream_title"] = ch.get("name") or "IPTV"
-        # Cloudflare-fronted sources (OscarTV وغيرها) ترفض يوزر-إيجنت ffmpeg —
+        # Cloudflare-fronted sources ترفض يوزر-إيجنت ffmpeg —
         # نمرر هيدرات متصفح كاملة مع Referer للموقع الأصلي.
         hdrs = {}
         ua = (ch.get("user_agent") or "").strip()
@@ -345,14 +294,6 @@ async def iptv_play_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             hdrs["User-Agent"] = ua
         if referrer:
             hdrs["Referer"] = referrer
-        if not hdrs and ch.get("oscar_id"):
-            hdrs = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
-                ),
-                "Referer": "https://ostvapp.cam/",
-            }
         context.user_data["pending_stream_headers"] = hdrs or None
         from handlers.streams import start_rtmp_setup_flags
         await start_rtmp_setup_flags(update, context)

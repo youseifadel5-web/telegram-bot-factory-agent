@@ -1,4 +1,4 @@
-"""Admin diagnostics: /diagnose /probe /oscar_test"""
+"""Admin diagnostics: /diagnose /probe /hls"""
 from __future__ import annotations
 
 import html
@@ -76,38 +76,6 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.edit_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
     except Exception:
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-
-
-async def oscar_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.effective_user or not _admin(update.effective_user.id):
-        return
-    msg = await update.message.reply_text("🧪 اختبار Oscar API...")
-    results = []
-    try:
-        from services.oscar import movies, series, channels, taxonomy
-        try:
-            m = await movies.movies(page=1, limit=3)
-            results.append(f"✅ movies: {len(m)} items")
-        except Exception as e:
-            results.append(f"❌ movies: {e}")
-        try:
-            s = await series.series(page=1, limit=3)
-            results.append(f"✅ series: {len(s)} items")
-        except Exception as e:
-            results.append(f"❌ series: {e}")
-        try:
-            c = await channels.channel_show(1)
-            results.append(f"✅ channel_show(1): {'ok' if c else 'empty'}")
-        except Exception as e:
-            results.append(f"❌ channels: {e}")
-        try:
-            g = await taxonomy.genres()
-            results.append(f"✅ genres: {type(g).__name__}")
-        except Exception as e:
-            results.append(f"❌ genres: {e}")
-    except Exception as e:
-        results.append(f"❌ import/client: {e}")
-    await msg.edit_text("🧪 <b>Oscar API Test</b>\n\n" + "\n".join(results), parse_mode="HTML")
 
 
 async def probe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

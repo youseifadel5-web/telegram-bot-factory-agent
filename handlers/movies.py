@@ -156,16 +156,9 @@ async def run_movie_search(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     msg = await update.message.reply_text(f"🔍 جاري البحث عن «{query_text}» (جودة عالية)...")
     results = []
     try:
-        # Oscar first (better quality links)
-        from services.oscar_movies import oscar_api
-        results = await oscar_api.search_movies(query_text, limit=12)
+        results = await movies_svc.search_movies(query_text, category_key=cat, limit=12)
     except Exception as e:
-        logger.warning("oscar search: %s", e)
-    if not results:
-        try:
-            results = await movies_svc.search_movies(query_text, category_key=cat, limit=12)
-        except Exception as e:
-            logger.exception(e)
+        logger.exception(e)
         await msg.edit_text(f"❌ فشل البحث: {e}")
         return
 
@@ -207,29 +200,11 @@ async def movie_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Fetch full details
     if m.get("id"):
         try:
-            if m.get("source") == "oscar":
-                from services.oscar_movies import oscar_api
-                full = await oscar_api.get_movie_details(int(m["id"]))
-                if full:
-                    m = {**m, **full}
-                    # map watch_links to sources for play compatibility
-                    sources = []
-                    for w in (full.get("watch_links") or []):
-                        sources.append({
-                            "label": w.get("label") or "سيرفر",
-                            "quality": w.get("quality") or "",
-                            "url": w.get("url"),
-                        })
-                    m["sources"] = sources
-                    m["download_links"] = full.get("download_links") or []
-                    results[idx] = m
-                    context.user_data["movie_results"] = results
-            else:
-                full = await movies_svc.get_movie(m["id"])
-                if full and full.get("sources"):
-                    m = {**m, **full}
-                    results[idx] = m
-                    context.user_data["movie_results"] = results
+            full = await movies_svc.get_movie(m["id"])
+            if full and full.get("sources"):
+                m = {**m, **full}
+                results[idx] = m
+                context.user_data["movie_results"] = results
         except Exception as e:
             logger.warning("movie detail: %s", e)
 

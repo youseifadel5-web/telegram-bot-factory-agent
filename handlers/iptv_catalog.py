@@ -43,7 +43,7 @@ async def catalog_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # quick countries first (مصر وأهم الدول العربية)
     for key, icon, label in cat.COUNTRY_PACKAGES:
         buttons.append(InlineKeyboardButton(f"{icon} {label}", callback_data=f"cat_open:{key}"))
-    rows = _rows(buttons, per_row=2)
+    rows = _rows(buttons, per_row=3)
 
     cat_buttons = [
         InlineKeyboardButton(f"{icon} {label}", callback_data=f"cat_open:{key}")
@@ -55,13 +55,15 @@ async def catalog_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     cat_rows = cat_rows[page * PKGS_PER_PAGE:(page + 1) * PKGS_PER_PAGE]
 
     nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"cat_menu:{page-1}"))
-    nav.append(InlineKeyboardButton(f"{page+1}/{total_pkg_pages}", callback_data="noop"))
-    if page < total_pkg_pages - 1:
-        nav.append(InlineKeyboardButton("التالي ➡️", callback_data=f"cat_menu:{page+1}"))
+    # لا تُعرض صفوف التنقّل عندما تكون صفحة واحدة (كان يظهر زر «1/1» بلا فائدة).
+    if total_pkg_pages > 1:
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"cat_menu:{page-1}"))
+        nav.append(InlineKeyboardButton(f"{page+1}/{total_pkg_pages}", callback_data="noop"))
+        if page < total_pkg_pages - 1:
+            nav.append(InlineKeyboardButton("التالي ➡️", callback_data=f"cat_menu:{page+1}"))
 
-    keyboard = rows + cat_rows + [nav] + [[
+    keyboard = rows + cat_rows + ([nav] if nav else []) + [[
         InlineKeyboardButton("🔄 تحديث الباقات", callback_data="cat_refresh"),
         InlineKeyboardButton("🔙 IPTV", callback_data="iptv_menu"),
     ]]

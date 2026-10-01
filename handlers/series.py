@@ -27,15 +27,9 @@ async def series_menu_callback(update, context):
 async def run_series_search(update, context, text):
     msg=await update.message.reply_text(f"🔍 جاري البحث عن «{text}» (جودة عالية)...")
     results=[]
-    try:
-        from services.oscar_movies import oscar_api
-        results = await oscar_api.search_series(text, limit=12)
+    try: results=await svc.search_series(text)
     except Exception as e:
-        logger.warning("oscar series: %s", e)
-    if not results:
-        try: results=await svc.search_series(text)
-        except Exception as e:
-            logger.exception(e); results=[]
+        logger.exception(e); results=[]
     if not results:
         await msg.edit_text("❌ لم يتم العثور على مسلسل. جرّب اسماً أقصر.")
         return
@@ -64,21 +58,10 @@ async def series_pick_callback(update,context):
         return
     s=results[i]; context.user_data["selected_series"]=s
     seasons=[]
-    if s.get("source")=="oscar" or s.get("kind")=="series":
-        try:
-            from services.oscar_movies import oscar_api
-            full = await oscar_api.get_series_details(int(s["id"]))
-            if full:
-                s={**s,**full}
-                context.user_data["selected_series"]=s
-                seasons=full.get("seasons") or []
-        except Exception as e:
-            logger.warning("oscar series detail: %s", e)
-    if not seasons:
-        try:
-            seasons=await svc.get_seasons(s.get("id"))
-        except Exception:
-            seasons=[]
+    try:
+        seasons=await svc.get_seasons(s.get("id"))
+    except Exception:
+        seasons=[]
     context.user_data["series_seasons"]=seasons
     kb=[]
     for j,season in enumerate(seasons):

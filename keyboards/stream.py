@@ -60,14 +60,6 @@ def stream_list_button_text(
     return text[:64]
 
 
-def stream_create_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔗 رابط مباشر / HLS", callback_data="stream_source_direct")],
-        [InlineKeyboardButton("📁 من ملفاتي", callback_data="stream_source_files")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")],
-    ])
-
-
 def current_streams_keyboard(streams: List[Dict], live_meta: Optional[Dict[int, dict]] = None) -> InlineKeyboardMarkup:
     """List of current streams with #id + state + uptime on each button.
 

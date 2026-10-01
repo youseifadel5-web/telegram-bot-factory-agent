@@ -32,10 +32,6 @@ def _safe_int(value: str, default: int = 0) -> int:
 ADMIN_ID = _safe_int(os.getenv("ADMIN_ID", "0"), 0)
 
 
-# Oscar / HLS / concurrency (defaults safe if unset)
-OSCAR_TIMEOUT = _safe_int(os.getenv("OSCAR_TIMEOUT", "25"), 25)
-OSCAR_RETRIES = _safe_int(os.getenv("OSCAR_RETRIES", "3"), 3)
-OSCAR_CACHE_TTL = _safe_int(os.getenv("OSCAR_CACHE_TTL", "300"), 300)
 HLS_TIMEOUT = _safe_int(os.getenv("HLS_TIMEOUT", "15"), 15)
 HLS_RETRIES = _safe_int(os.getenv("HLS_RETRIES", "2"), 2)
 MAX_STREAMS = _safe_int(os.getenv("MAX_STREAMS", "4"), 4)

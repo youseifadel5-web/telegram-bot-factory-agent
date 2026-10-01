@@ -133,7 +133,7 @@ def _make_headers(orig_url: str, extra: Dict[str, str]) -> Dict[str, str]:
     """
     h = dict(SNIFF_HEADERS)
     host = urlparse(orig_url).netloc
-    # هيدرات خاصة مررها مصدر البث (أوسكار وغيره) — لكن لنفس النطاق فقط،
+    # هيدرات خاصة مررها مصدر البث — لكن لنفس النطاق فقط،
     # حتى لا تتسرب بيانات اعتماد مصدرٍ ما إلى خادم آخر داخل القائمة.
     extra_host = urlparse(str(extra.get("_origin_host") or "")).netloc if isinstance(extra, dict) else ""
     same_host = bool(host) and bool(extra_host) and host == extra_host

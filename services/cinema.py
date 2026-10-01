@@ -1,7 +1,7 @@
-"""Unified cinema facade over the existing OscarTV API.
+"""Unified cinema facade over the Hekaya TV API.
 
 This module does not replace the existing movie/series services.  It only
-normalizes the already configured OscarTV source for the new Cinema UI.
+normalizes the already configured Hekaya source for the new Cinema UI.
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from services.oscar_movies import oscar_api
+from services.hekaya import HEKAYA_BASE
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +205,9 @@ def normalize(item: dict, kind: str, details: bool = False) -> dict:
     poster = (item.get("poster") or item.get("poster_url") or item.get("posterUrl") or
               item.get("image") or item.get("image_url") or item.get("thumbnail") or "")
     if poster and str(poster).startswith("/"):
-        poster = f"{'https://ostvapp.cam'}{poster}"
+        poster = f"{HEKAYA_BASE}{poster}"
     elif poster and not str(poster).startswith(("http://", "https://")):
-        poster = f"https://ostvapp.cam/{str(poster).lstrip('/')}"
+        poster = f"{HEKAYA_BASE}/{str(poster).lstrip('/')}"
     genres = item.get("genres") or item.get("genre") or item.get("genre_list") or ""
     if isinstance(genres, list):
         names = []
@@ -230,7 +230,7 @@ def normalize(item: dict, kind: str, details: bool = False) -> dict:
         "seasons": _as_list(item.get("seasons")),
         "episodes_count": item.get("episode_count") or item.get("episodes_count") or 0,
         "links": normalize_links(item) if details else [],
-        "source": "oscar",
+        "source": "hekaya",
     }
 
 
@@ -291,40 +291,15 @@ def _fuzzy_variants(query: str) -> list:
 
 
 async def search(query: str, limit: int = 12) -> List[dict]:
-    """Search movies/series/anime with fuzzy variants; Oscar + Hekaya independent."""
-    import asyncio
+    """Search movies/series with fuzzy variants via the Hekaya source."""
     q = (query or "").strip()
     if len(q) < 2:
         return []
     variants = _fuzzy_variants(q)
 
-    async def safe(fn, qq):
-        try:
-            return await fn(qq, limit=limit)
-        except Exception as exc:
-            logger.warning("cinema search failed: %s", exc)
-            return []
-
     results = []
     seen_ids = set()
     for v in variants:
-        movie, series, anime = await asyncio.gather(
-            safe(oscar_api.search_movies, v),
-            safe(oscar_api.search_series, v),
-            safe(oscar_api.search_anime, v),
-        )
-        for x in movie:
-            n = normalize(x, "movie"); key = ("oscar", n.get("id"), "movie")
-            if key not in seen_ids:
-                seen_ids.add(key); results.append(n)
-        for x in series:
-            n = normalize(x, "series"); key = ("oscar", n.get("id"), "series")
-            if key not in seen_ids:
-                seen_ids.add(key); results.append(n)
-        for x in anime:
-            n = normalize(x, "anime"); key = ("oscar", n.get("id"), "anime")
-            if key not in seen_ids:
-                seen_ids.add(key); results.append(n)
         try:
             from services import hekaya
             hk = await hekaya.search(v, page=1, limit=limit)
@@ -343,12 +318,8 @@ async def search(query: str, limit: int = 12) -> List[dict]:
 
 async def details(kind: str, item_id: int) -> Optional[dict]:
     try:
-        if kind == "movie":
-            data = await oscar_api.get_movie_details(int(item_id))
-        elif kind == "series":
-            data = await oscar_api.get_series_details(int(item_id))
-        else:
-            data = await oscar_api.get_anime_details(int(item_id))
+        from services import hekaya
+        data = await hekaya.get_details(int(item_id), kind)
         return normalize(data, kind, details=True) if data else None
     except Exception as exc:
         logger.warning("cinema details failed %s/%s: %s", kind, item_id, exc)
@@ -356,25 +327,10 @@ async def details(kind: str, item_id: int) -> Optional[dict]:
 
 
 async def episodes(kind: str, parent_id: int, season_id: Optional[int] = None, page: int = 1) -> List[dict]:
-    try:
-        if kind == "anime":
-            return await oscar_api.get_anime_episodes(int(parent_id), page=page, per_page=20, season_id=season_id)
-        if season_id:
-            return await oscar_api.get_season_episodes(int(season_id), page=page)
-        return []
-    except Exception as exc:
-        logger.warning("cinema episodes failed: %s", exc)
-        return []
+    """Hekaya exposes no episode listing; return an empty list gracefully."""
+    return []
 
 
 async def episode_details(kind: str, episode_id: int) -> Optional[dict]:
-    try:
-        data = await (oscar_api.get_anime_episode_details(int(episode_id)) if kind == "anime" else oscar_api.get_episode_details(int(episode_id)))
-        if not data:
-            return None
-        data = dict(data)
-        data["links"] = normalize_links(data)
-        return data
-    except Exception as exc:
-        logger.warning("cinema episode details failed: %s", exc)
-        return None
+    """Hekaya exposes no episode details; return None gracefully."""
+    return None

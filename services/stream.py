@@ -256,7 +256,7 @@ def _validate_source_url(url: str) -> str:
         url = sanitize_url_for_ffmpeg(clean_url(url))
     except Exception:
         url = url.strip()
-    # OscarTV / app players attach #t=timestamp — breaks ffmpeg
+    # Some app players attach #t=timestamp — breaks ffmpeg
     if "#" in url and not url.startswith("file:"):
         url = url.split("#", 1)[0]
     # allow only expected schemes
