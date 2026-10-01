@@ -141,3 +141,49 @@ def test_flowing_stream_never_flagged():
 def test_initial_timeout_less_than_stall_timeout():
     import services.stream as s
     assert s.INITIAL_DATA_TIMEOUT < s.STALL_TIMEOUT
+
+
+# ── الرجوع من الريلاي إلى المصدر المباشر ────────────────────────────────────
+
+def test_relay_to_direct_fallback_once():
+    mgr = _bare_manager()
+    meta = {
+        "relay_mode": True,
+        "relay_original": "https://cdn.example.com/a.m3u8",
+        "source": "http://127.0.0.1:9/r/xxx",
+    }
+    assert mgr._relay_to_direct_fallback(1, meta) is True
+    assert meta["source"] == "https://cdn.example.com/a.m3u8"
+    assert meta["relay_mode"] is False and meta["relay_failed"] is True
+    assert mgr._relay_to_direct_fallback(1, meta) is False   # مرة واحدة فقط
+
+
+def test_relay_fallback_uses_sources_list():
+    mgr = _bare_manager()
+    meta = {
+        "relay_mode": True, "relay_original": "https://cdn.example.com/a.m3u8",
+        "sources": ["http://127.0.0.1:9/r/xxx", "https://backup/b.m3u8"], "source_index": 0,
+    }
+    assert mgr._relay_to_direct_fallback(1, meta) is True
+    assert meta["sources"][0] == "https://cdn.example.com/a.m3u8"
+
+
+def test_start_stream_falls_back_to_direct_when_relay_fails():
+    mgr = _bare_manager()
+    mgr._apply_relay_default = lambda meta: meta.update({
+        "relay_mode": True,
+        "relay_original": meta["source"],
+        "source": "http://127.0.0.1:9/r/xxx",
+    })
+    tried = []
+
+    def fake_spawn(sid):
+        src = mgr._current_source(mgr._meta[sid])
+        tried.append(src)
+        return None if "127.0.0.1" in src else 123
+
+    mgr._spawn = fake_spawn
+    pid = mgr.start_stream(3, "https://cdn.example.com/a.m3u8", "rtmps://e/live/K",
+                           with_video=True, source_type="M3U8 / HLS")
+    assert pid == 123
+    assert tried[-1] == "https://cdn.example.com/a.m3u8"   # انتهى بالمصدر المباشر

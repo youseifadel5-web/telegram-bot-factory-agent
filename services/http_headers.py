@@ -45,3 +45,34 @@ def alt_headers(orig_url: str, extra: dict | None = None) -> dict:
         ):
             h[str(k)] = str(v)
     return h
+
+
+def cf_headers(orig_url: str, extra: dict | None = None) -> dict:
+    """حزمة متصفح كاملة لمقاومة فحص Cloudflare (workers.dev وغيرها).
+
+    Cloudflare يحسب احتمال البوت من مجموعة إشارات: UA + Referer/Origin +
+    Sec-Fetch-* + Accept-Language. هذه الحزمة تقدّمها كاملة كإعادة محاولة
+    أخيرة عندما تُرفض الحزمتان الأخريان.
+    """
+    host = urlparse(orig_url).netloc
+    h = {
+        "User-Agent": DESKTOP_UA,
+        "Accept": "*/*",
+        "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "identity",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Connection": "keep-alive",
+    }
+    if host:
+        h["Referer"] = f"https://{host}/"
+        h["Origin"] = f"https://{host}"
+    for k, v in (extra or {}).items():
+        if v and str(k).lower() not in (
+            "accept-encoding", "host", "content-length", "connection",
+            "_origin_host",
+        ):
+            h[str(k)] = str(v)
+    return h

@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, Optional
 from urllib.parse import urljoin, urlparse
 
-from services.http_headers import SNIFF_HEADERS, alt_headers
+from services.http_headers import SNIFF_HEADERS, alt_headers, cf_headers
 
 logger = logging.getLogger(__name__)
 FETCH_TIMEOUT = 25
@@ -30,6 +30,13 @@ _URI_ATTR_RE = re.compile(r'(URI)="([^"]+)"')
 
 _lock = threading.Lock()
 _server: Optional[ThreadingHTTPServer] = None
+_last_port: Optional[int] = None
+
+
+class _ReusableServer(ThreadingHTTPServer):
+    """خادم يسمح بإعادة استخدام نفس المنفذ بعد إعادة الإنشاء."""
+
+    allow_reuse_address = True
 
 
 def _encode_target(url: str, headers: Optional[Dict[str, str]]) -> str:
@@ -75,24 +82,37 @@ def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
     # روابط داخلية (metadata/RFC1918) لا يجوز جلبها أو بثها.
     from services.security.ssrf import assert_safe_url
     assert_safe_url(url)
-    req_headers = _make_headers(url, headers)
-    if range_header:
-        req_headers["Range"] = range_header
-    req = urllib.request.Request(url, headers=req_headers, method="GET")
-    try:
-        return urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
-    except urllib.error.HTTPError as e:
-        # بعض شبكات CDN ترفض الحزمة الأساسية وترد 4XX/5XX مع أنها تقبل
-        # طلب الفحص — أعد المحاولة مرة واحدة بحزمة المتصفح المكتبي
-        # (مع Referer) لروابط القوائم فقط، لا القطع.
-        if e.code and e.code >= 400 and ".m3u8" in url.lower():
-            retry_headers = alt_headers(url, headers)
-            if range_header:
-                retry_headers["Range"] = range_header
-            logger.debug("relay retry with desktop headers (%s): %s", e.code, url[:120])
-            req2 = urllib.request.Request(url, headers=retry_headers, method="GET")
-            return urllib.request.urlopen(req2, timeout=FETCH_TIMEOUT)
-        raise
+    # ثلاث حزم بالترتيب: (1) نفس حزمة الفحص، (2) متصفح مكتبي + Referer،
+    # (3) حزمة متصفح كاملة لمقاومة Cloudflare. نجرّب التالية عند رفض 4xx/5xx.
+    variants = [
+        _make_headers(url, headers),
+        alt_headers(url, headers),
+        cf_headers(url, headers),
+    ]
+    last_exc: Optional[Exception] = None
+    for i, req_headers in enumerate(variants):
+        rh = dict(req_headers)
+        if range_header:
+            rh["Range"] = range_header
+        req = urllib.request.Request(url, headers=rh, method="GET")
+        try:
+            return urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
+        except urllib.error.HTTPError as e:
+            last_exc = e
+            # إعادة المحاولة مفيدة لروابط القوائم (نصية) أكثر من القطع.
+            if not (e.code and e.code >= 400):
+                raise
+            logger.warning(
+                "relay upstream HTTP %s (attempt %s/3) for %s", e.code, i + 1, url[:140]
+            )
+            continue
+        except Exception as e:
+            # أخطاء شبكة/مهلة/SSL — جرّب الحزمة التالية أيضاً
+            last_exc = e
+            logger.warning("relay upstream failed (attempt %s/3): %s | %s", i + 1, type(e).__name__, url[:140])
+            continue
+    if last_exc is not None:
+        raise last_exc
 
 
 class _RelayHandler(BaseHTTPRequestHandler):
@@ -204,10 +224,21 @@ def _serve():
 
 
 def _ensure_server() -> ThreadingHTTPServer:
-    global _server
+    global _server, _last_port
     with _lock:
         if _server is None:
-            _server = ThreadingHTTPServer(("127.0.0.1", 0), _RelayHandler)
+            # ثبّت نفس المنفذ عند إعادة الإنشاء: روابط الريلاي المبنية مسبقاً
+            # تحتوي المنفذ القديم، فتغييره يقتلها (Error opening input file).
+            srv = None
+            if _last_port:
+                try:
+                    srv = _ReusableServer(("127.0.0.1", _last_port), _RelayHandler)
+                except OSError:
+                    srv = None
+            if srv is None:
+                srv = _ReusableServer(("127.0.0.1", 0), _RelayHandler)
+            _server = srv
+            _last_port = _server.server_address[1]
             _server.daemon_threads = True
             t = threading.Thread(target=_serve, daemon=True, name="hls-relay")
             t.start()

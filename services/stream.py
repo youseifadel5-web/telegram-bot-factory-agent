@@ -884,6 +884,8 @@ class StreamManager:
             return f"إصدار FFmpeg لا يدعم أحد الخيارات المطلوبة: {line[:180]}"
         if "invalid argument" in low:
             return f"خيار/قيمة مرفوضة عند الإخراج — سيتحول البوت للأمر المجرّب: {line[:160]}"
+        if any(x in low for x in ("error opening input", "failed to open input")):
+            return f"فشل فتح المصدر (تحقق من الرابط/الحظر أو جرّب مصدراً آخر): {line[:160]}"
         if any(x in low for x in ("error opening output", "failed to open output", "rtmp", "flv muxer")):
             return f"رفض خادم RTMP الإخراج (تحقق من السيرفر والمفتاح): {line[:160]}"
         if any(x in low for x in ("unknown encoder", "encoder not found", "error while opening encoder")):
@@ -1106,6 +1108,29 @@ class StreamManager:
         )
         return True
 
+    def _relay_to_direct_fallback(self, stream_id: int, meta: dict) -> bool:
+        """العودة من الريلاي إلى المصدر المباشر بعد فشل الريلاي (مرة واحدة).
+
+        كان هناك مسار «مباشر ← ريلاي» عند 403، لكن لا مسار عكسي: لو الريلاي
+        نفسه فشل (Cloudflare يرفض Python، أو انقطع الاتصال) يموت البث نهائياً
+        بخطأ «Error opening input file http://127.0.0.1:.../r/...».
+        """
+        if not meta.get("relay_mode") or meta.get("relay_failed"):
+            return False
+        orig = meta.get("relay_original")
+        if not orig:
+            return False
+        meta["relay_mode"] = False
+        meta["relay_failed"] = True
+        sources = meta.get("sources")
+        if sources:
+            idx = meta.get("source_index", 0) % len(sources)
+            sources[idx] = orig
+        else:
+            meta["source"] = orig
+        logger.warning("Stream %s: relay failed — falling back to DIRECT source", stream_id)
+        return True
+
     def _handle_death(self, stream_id: int, process: Optional[subprocess.Popen]):
         meta = self._meta.get(stream_id)
         if not meta:
@@ -1175,6 +1200,14 @@ class StreamManager:
         # فشل فتح الإخراج / خيار غير مدعوم في بناء FFmpeg على السيرفر:
         # انتقل فوراً للأمر المجرّب (safe mode) وسجّل الأمر الكامل للتشخيص.
         raw_all = f"{last_err} {meta.get('last_error_raw') or ''}".lower()
+        # فشل الريلاي نفسه (خطأ فتح الإدخال على 127.0.0.1) → عودة للمصدر المباشر.
+        relay_fail = meta.get("relay_mode") and (
+            "127.0.0.1" in raw_all or "relay" in raw_all or "connection refused" in raw_all
+        )
+        if relay_fail and self._relay_to_direct_fallback(stream_id, meta):
+            meta["restarts"] = 0
+            meta["last_error"] = "فشل الريلاي — العودة إلى المصدر المباشر"
+            log_stream_event(stream_id, "relay", "فشل الريلاي — عودة إلى المصدر المباشر")
         output_fail = any(x in raw_all for x in (
             "failed to set value", "matches no streams", "error parsing options",
             "error opening output", "invalid argument",
@@ -1359,6 +1392,11 @@ class StreamManager:
                     stream_id, str(self._meta[stream_id].get("last_error") or "")[:120],
                 )
                 pid = self._spawn(stream_id)
+            if not pid and self._meta[stream_id].get("relay_mode") and not self._meta[stream_id].get("relay_failed"):
+                # الريلاي فشل من أول لحظة → جرّب المصدر المباشر قبل الاستسلام.
+                if self._relay_to_direct_fallback(stream_id, self._meta[stream_id]):
+                    logger.warning("Stream %s: first spawn failed on relay — retrying DIRECT", stream_id)
+                    pid = self._spawn(stream_id)
             if not pid:
                 self._meta.pop(stream_id, None)
                 return None
