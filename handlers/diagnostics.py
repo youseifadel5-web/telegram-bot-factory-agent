@@ -163,7 +163,7 @@ async def sources_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 2) حكاية / GoLive (مسلسلات)
         try:
             series = await golive.series(search="مسلسل", limit=3)
-            lines.append(f"{'\U0001F7E2' if series else '\U0001F534'} حكاية/GoLive — مسلسلات: {len(series or [])}")
+            lines.append(f"{'🟢' if series else '🔴'} حكاية/GoLive — مسلسلات: {len(series or [])}")
         except Exception as e:
             lines.append(f"🔴 حكاية/GoLive (مسلسلات) — خطأ: {str(e)[:80]}")
         # 3) فاصل HD
