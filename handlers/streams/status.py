@@ -260,11 +260,17 @@ async def stream_status_callback(update: Update, context: ContextTypes.DEFAULT_T
             return
         can_control = (s.get("user_id") == query.from_user.id or is_admin(query.from_user.id, ADMIN_ID))
         running = stream_manager.is_running(stream_id)
-        if running != (s["status"] == "running"):
+        meta_now = stream_manager.get_meta(stream_id) or {}
+        state_now = str(meta_now.get("state") or "")
+        # أثناء نافذة إعادة التشغيل (العملية ميتة بين محاولتين) لا نكتب
+        # «متوقف» في قاعدة البيانات — البث يعود تلقائياً بعد ثوانٍ، والكتابة
+        # كانت تُظهر «متوقف» خطأً في اللوحة.
+        restarting = bool(meta_now.get("watchdog")) and state_now in ("reconnecting", "connecting")
+        if running != (s["status"] == "running") and not restarting:
             await db.update_stream_status(stream_id, "running" if running else "stopped")
 
         # Reconcile DB status with real process state — keeps the UI truthful
-        if not running and s["status"] == "running":
+        if not running and s["status"] == "running" and not restarting:
             try:
                 await db.update_stream_status(stream_id, "stopped")
             except Exception:

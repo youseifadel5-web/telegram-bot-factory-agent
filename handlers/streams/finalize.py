@@ -239,6 +239,26 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     source = sanitize_url_for_ffmpeg(source or "")
                 except Exception:
                     pass
+                # تليجرام يسمح باتصال ingest واحد فقط لكل مفتاح بث — بثّان بنفس
+                # المفتاح = الثاني يُرفض ويظهر «متوقفاً» بلا سبب واضح. نوضّحها
+                # للمستخدم بدل فشل صامت مربك.
+                try:
+                    conflict = stream_manager.rtmp_in_use(rtmp, exclude_stream_id=stream_id)
+                except Exception:
+                    conflict = None
+                if conflict:
+                    await db.update_stream_status(stream_id, "stopped")
+                    await db.update_stream_error(stream_id, f"نفس مفتاح البث مستخدم في بث #{conflict}")
+                    clear_workflow_state(context.user_data)
+                    await _safe_update_reply(
+                        update,
+                        f"⚠️ تم حفظ البث #{stream_id} لكن لم يبدأ التشغيل.\n\n"
+                        f"🔑 نفس مفتاح البث مستخدم بالفعل في البث #{conflict} (شغّال الآن).\n"
+                        "تليجرام يسمح ببث واحد فقط لكل مفتاح — استخدم مفتاح مختلف "
+                        "(ابدأ «بث مباشر جديد» في تليجرام) أو أوقف البث الآخر أولاً.",
+                        reply_markup=main_reply_keyboard(is_admin(user_id, ADMIN_ID)),
+                    )
+                    return ConversationHandler.END
                 pid = await asyncio.to_thread(
                     stream_manager.start_stream,
                     stream_id, source, rtmp,

@@ -1295,6 +1295,16 @@ class StreamManager:
             # محاولة الفشل الأولى ويجعل التشغيل أسرع وأثبت.
             self._apply_relay_default(self._meta[stream_id])
             pid = self._spawn(stream_id)
+            if not pid and not self._meta[stream_id].get("safe_mode"):
+                # الأمر المتقدم فشل فوراً (خروج خلال 0.4 ث) — جرّب الأمر المجرّب
+                # (safe mode) مرة واحدة قبل الاستسلام. هذا كان يضيّع الحل تماً
+                # للبثوث التي تفشل من أول لحظة (لم يكن هناك watchdog بعد).
+                self._meta[stream_id]["safe_mode"] = True
+                logger.warning(
+                    "Stream %s: first spawn failed (%s) — retrying with SAFE ffmpeg command",
+                    stream_id, str(self._meta[stream_id].get("last_error") or "")[:120],
+                )
+                pid = self._spawn(stream_id)
             if not pid:
                 self._meta.pop(stream_id, None)
                 return None
@@ -1307,6 +1317,25 @@ class StreamManager:
             self._watchdogs[stream_id] = t
             t.start()
             return pid
+
+    def rtmp_in_use(self, rtmp_url: str, exclude_stream_id: Optional[int] = None) -> Optional[int]:
+        """يرجع رقم بث شغّال يستخدم نفس رابط RTMP، أو None.
+
+        تليجرام (وغيره) يسمح باتصال ingest واحد فقط لكل مفتاح بث — بثّان بنفس
+        المفتاح يعني أن الثاني سيُرفض ويبدو «متوقفاً» بلا سبب واضح. نكشف ذلك
+        مبكراً ونقول للمستخدم بدل فشل صامت.
+        """
+        target = (rtmp_url or "").strip()
+        if not target:
+            return None
+        for sid, meta in list(self._meta.items()):
+            if exclude_stream_id is not None and sid == exclude_stream_id:
+                continue
+            if sid not in self.processes:
+                continue
+            if (meta.get("rtmp") or "").strip() == target:
+                return sid
+        return None
 
     def _stop_stream_locked(self, stream_id: int) -> bool:
         meta = self._meta.get(stream_id)
