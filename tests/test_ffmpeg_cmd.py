@@ -204,3 +204,17 @@ def test_classifier_output_option_not_blamed_on_version():
     msg2 = mgr._classify_ffmpeg_error(
         "Failed to set value '0:a:0' for option 'map': Invalid argument")
     assert "الإخراج" in msg2
+
+
+def test_allowed_extensions_for_disguised_hls():
+    """HLS متنكّر بامتداد .css (أو عبر الريلاي) يجب أن يحصل على allowed_extensions."""
+    cmd = sm.build_ffmpeg_cmd(
+        "ffmpeg",
+        "https://still-dust.workers.dev/assets/res2/java2/19.css?x=%2Fhls%2F",
+        "rtmps://dc4-1.rtmp.t.me/s/KEY",
+        with_video=True, media_kind="video", has_audio=True, has_video=True,
+        source_type="M3U8 / HLS",
+    )
+    j = " ".join(map(str, cmd))
+    assert "-allowed_extensions ALL" in j
+    assert "-f hls" in j

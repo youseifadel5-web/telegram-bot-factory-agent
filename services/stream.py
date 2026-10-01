@@ -485,9 +485,19 @@ def build_ffmpeg_cmd(
         hdr = "\r\n".join(f"{k}: {v}" for k, v in headers.items())
         if hdr:
             cmd += ["-headers", hdr + "\r\n"]
-        if (".m3u8" in source_url.lower() or "/hls" in source_url.lower()) and _ffmpeg_supports_option(ffmpeg, "allowed_extensions"):
+        # HLS قد يتنكّر بامتداد آخر (.css/.php) أو يمرّ عبر الريلاي (بلا امتداد) —
+        # لذا نعتبره HLS بناءً على نوع المصدر أيضاً، لا على امتداد الرابط وحده.
+        _st_low = (source_type or "").lower()
+        _hls_input = (
+            ".m3u8" in source_url.lower()
+            or "/hls" in source_url.lower()
+            or "hls" in _st_low
+            or "m3u8" in _st_low
+            or "mpegurl" in _st_low
+        )
+        if _hls_input and _ffmpeg_supports_option(ffmpeg, "allowed_extensions"):
             cmd += ["-allowed_extensions", "ALL"]
-        if (".m3u8" in source_url.lower() or "/hls" in source_url.lower()) and _ffmpeg_supports_option(ffmpeg, "live_start_index"):
+        if _hls_input and _ffmpeg_supports_option(ffmpeg, "live_start_index"):
             cmd += ["-live_start_index", "-1"]
 
     # Decide media mode from the actual probe when available. URL extension is only a fallback.

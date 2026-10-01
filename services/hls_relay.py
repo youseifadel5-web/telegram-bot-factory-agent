@@ -166,12 +166,20 @@ def _open_once(url: str, headers: Dict[str, str], range_header: Optional[str]):
     return urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
 
 
+def _looks_like_html(head: bytes) -> bool:
+    """يبدو صفحة HTML (تحدي/حظر Cloudflare أو خطأ)؟"""
+    low = head[:4096].lower()
+    return any(m in low for m in (
+        b"<!doctype", b"<html", b"<head", b"<body", b"<meta", b"cloudflare",
+        b"just a moment", b"attention required",
+    ))
+
+
 def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
     # فحص SSRF على كل رابط يمر عبر الريلاي — القائمة نفسها قد تحوي
     # روابط داخلية (metadata/RFC1918) لا يجوز جلبها أو بثها.
     from services.security.ssrf import assert_safe_url
     assert_safe_url(url)
-    is_playlist = any(x in url.lower() for x in (".m3u8", "m3u8", "mpegurl"))
     # ثلاث حزم بالترتيب: (1) نفس حزمة الفحص، (2) متصفح مكتبي + Referer،
     # (3) حزمة متصفح كاملة لمقاومة Cloudflare.
     variants = [
@@ -197,11 +205,9 @@ def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
                 i + 1, type(e).__name__, url[:140],
             )
             continue
-        if not is_playlist:
-            return resp
-        # رابط قائمة: تحقق أن المحتوى فعلاً #EXTM3U — Cloudflare قد يرد صفحة
-        # HTML بحالة 200، وكان الريلاي يمرّرها لـ FFmpeg فيشتكي
-        # «Invalid data found when processing input».
+        # صنّف المحتوى بالفعلي لا بالامتداد: كثير من مصادر IPTV تتنكّر بامتداد
+        # .css/.php، وكان التصنيف بالامتداد يمرّر صفحات حظر HTML لـ FFmpeg
+        # فيشتكي «Invalid data found when processing input».
         try:
             head = resp.read(16 * 1024)
         except Exception as e:  # noqa: BLE001
@@ -213,15 +219,18 @@ def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
             continue
         if head.lstrip(b"\xef\xbb\xbf \r\n\t").lower().startswith(b"#extm3u"):
             return _PeekedResponse(resp, head)
-        logger.warning(
-            "relay got non-playlist content (attempt %s/3) for %s", i + 1, url[:140]
-        )
-        last_exc = RuntimeError("non-playlist content (blocked?)")
-        try:
-            resp.close()
-        except Exception:  # noqa: BLE001
-            pass
-        continue
+        if _looks_like_html(head):
+            logger.warning(
+                "relay got HTML block page (attempt %s/3) for %s", i + 1, url[:140]
+            )
+            last_exc = RuntimeError("blocked (html challenge)")
+            try:
+                resp.close()
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        # بيانات ميديا (قطعة TS/fMP4) — مرّرها كما هي
+        return _PeekedResponse(resp, head)
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("relay fetch failed")

@@ -250,3 +250,52 @@ def test_relay_errors_when_html_always(monkeypatch):
             assert e.code == 502
     finally:
         srv.shutdown()
+
+
+def test_relay_handles_disguised_css_playlist(monkeypatch):
+    """رابط .css متنكّر يحمل m3u8 حقيقياً — يُصنَّف بالمحتوى لا بالامتداد."""
+    monkeypatch.setattr(ssrf_mod, "assert_safe_url", lambda u: None)
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            body = M3U8.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/css")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        def log_message(self, *a):
+            return
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/live/index.css?x=%2Fhls%2F"
+        status, body = _relay_get(url)
+        assert status == 200 and body.startswith(b"#EXTM3U")
+    finally:
+        srv.shutdown()
+
+
+def test_relay_blocks_html_on_disguised_css(monkeypatch):
+    """نفس الرابط المتنكّر لكن يعيد صفحة HTML — تُرفض ولا تُمرَّر."""
+    monkeypatch.setattr(ssrf_mod, "assert_safe_url", lambda u: None)
+    HTML = b"<!DOCTYPE html><html><head><title>Attention Required! | Cloudflare</title></head></html>"
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(HTML)))
+            self.end_headers()
+            self.wfile.write(HTML)
+        def log_message(self, *a):
+            return
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        relay_url = hls_relay.get_relay_url(f"http://127.0.0.1:{srv.server_address[1]}/live/index.css")
+        try:
+            urllib.request.urlopen(relay_url, timeout=15)
+            assert False, "كان يجب أن يفشل (502)"
+        except urllib.error.HTTPError as e:
+            assert e.code == 502
+    finally:
+        srv.shutdown()
