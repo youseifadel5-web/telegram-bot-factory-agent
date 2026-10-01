@@ -1,5 +1,25 @@
 # Changelog — KataBump Stable vNext (Selective Merge)
 
+## 2026-10-01 (14) — الحل الجذري لحظر Cloudflare: تقليد بصمة Chrome + رفض صفحات الحظر
+
+السياق: الخطأ تغيّر إلى `Error opening input files: Invalid data found when processing
+input` — أي أن FFmpeg استقبل محتوى ليس ميدياً (صفحة حظر Cloudflare HTML) بحالة 200،
+وكان الريلاي يمرّرها كما هي. السبب الجذري: Cloudflare يميّز الطلب كبوت من **بصمة TLS
+(JA3)** لا من الهيدرز فقط — Python/urllib لا يخدعه.
+
+### Fixed
+- **curl_cffi في الريلاي** (إضافة جديدة في requirements): يقلّد بصمة TLS/HTTP لمتصفح
+  Chrome حقيقي (JA3/JA4 + sec-ch-ua) — وهو ما يعبر فحص Cloudflare فعلاً. مُوجَّه بـ
+  `impersonate="chrome"`، ويقع تلقائياً إلى urllib لو المكتبة غير متاحة (بلا تعطيل).
+- **رفض صفحات الحظر في الريلاي**: لو كان الرابط قائمة (.m3u8) والردّ ليس `#EXTM3U`
+  (صفحة HTML بحالة 200) → يُعتبر حظراً، تُجرَّب الحزمة التالية، وإن فشلت كلها يرد
+  الريلاي 502 بدل تمرير HTML لـ FFmpeg (كان هذا سبب «Invalid data found»).
+- ثلاث حزم هيدرات تُجرَّب بالترتيب (فحص / مكتبي+Referer / متصفح كامل مع Origin).
+
+### Tests
+- اختباران جديدان: نجاح الريلاي بعد حزمتين مرفوضتين بصفحة HTML، وردّ 502 عندما ترد
+  كل الحزم HTML. الإجمالي: 105 نجح.
+
 ## 2026-10-01 (13) — مقاومة حظر Cloudflare + رجوع تلقائي من الريلاي للمصدر المباشر
 
 السياق: قنوات أوسكار ومصادر Cloudflare (workers.dev) تفشل بخطأ

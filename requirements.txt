@@ -5,6 +5,8 @@ aiohttp==3.14.3
 aiosqlite==0.20.0
 psutil==6.1.0
 boto3==1.35.36
+# تقليد بصمة متصفح Chrome (TLS/JA3) لمقاومة حظر Cloudflare في الريلاي
+curl_cffi>=0.7
 cryptography>=42.0.0
 
 # Optional but recommended

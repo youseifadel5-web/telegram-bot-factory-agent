@@ -26,6 +26,76 @@ from services.http_headers import SNIFF_HEADERS, alt_headers, cf_headers
 logger = logging.getLogger(__name__)
 FETCH_TIMEOUT = 25
 
+# curl_cffi يقلّد بصمة TLS/HTTP لمتصفح Chrome حقيقي (JA3/JA4) — وهو الفرق
+# الجوهري الذي يمنع Cloudflare من تمييز الطلب كبوت. اختياري: لو غير متاح
+# نرجع إلى urllib بلا أي تعطيل.
+try:  # pragma: no cover - يخضع لتوفر المكتبة
+    from curl_cffi import requests as _cffi_requests
+    _HAS_CFFI = True
+except Exception:  # noqa: BLE001
+    _cffi_requests = None
+    _HAS_CFFI = False
+
+
+class _CffiResponse:
+    """يُلبس استجابة curl_cffi ثوب استجابة urllib التي يتوقعها المعالج."""
+
+    def __init__(self, resp):
+        self._resp = resp
+        self._it = resp.iter_content()
+        self._buf = b""
+        self.headers = resp.headers
+        self.status = getattr(resp, "status_code", 200)
+
+    def read(self, n=-1):
+        if n is None or n < 0:
+            for chunk in self._it:
+                self._buf += chunk
+            out, self._buf = self._buf, b""
+            return out
+        while len(self._buf) < n:
+            try:
+                self._buf += next(self._it)
+            except StopIteration:
+                break
+        out, self._buf = self._buf[:n], self._buf[n:]
+        return out
+
+    def close(self):
+        try:
+            self._resp.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class _PeekedResponse:
+    """يُعيد بايتات قُرئت مسبقاً (للتحقق من المحتوى) ثم يكمل من الاستجابة."""
+
+    def __init__(self, resp, head: bytes):
+        self._resp = resp
+        self._head = head
+        self.headers = resp.headers
+        self.status = getattr(resp, "status", 200)
+
+    def read(self, n=-1):
+        if n is None or n < 0:
+            out = self._head + self._resp.read(-1)
+            self._head = b""
+            return out
+        chunk = self._head[:n]
+        self._head = self._head[n:]
+        if len(chunk) < n:
+            more = self._resp.read(n - len(chunk))
+            if more:
+                chunk += more
+        return chunk
+
+    def close(self):
+        try:
+            self._resp.close()
+        except Exception:  # noqa: BLE001
+            pass
+
 _URI_ATTR_RE = re.compile(r'(URI)="([^"]+)"')
 
 _lock = threading.Lock()
@@ -77,13 +147,33 @@ def _make_headers(orig_url: str, extra: Dict[str, str]) -> Dict[str, str]:
     return h
 
 
+def _open_once(url: str, headers: Dict[str, str], range_header: Optional[str]):
+    """فتح واحد لطلب واحد — curl_cffi أولاً (مقاومة Cloudflare) ثم urllib."""
+    rh = dict(headers)
+    if range_header:
+        rh["Range"] = range_header
+    if _HAS_CFFI:
+        resp = _cffi_requests.get(
+            url, headers=rh, impersonate="chrome", timeout=FETCH_TIMEOUT,
+            stream=True, allow_redirects=True,
+        )
+        if getattr(resp, "status_code", 200) >= 400:
+            raise urllib.error.HTTPError(
+                url, resp.status_code, f"HTTP {resp.status_code}", resp.headers, None
+            )
+        return _CffiResponse(resp)
+    req = urllib.request.Request(url, headers=rh, method="GET")
+    return urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
+
+
 def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
     # فحص SSRF على كل رابط يمر عبر الريلاي — القائمة نفسها قد تحوي
     # روابط داخلية (metadata/RFC1918) لا يجوز جلبها أو بثها.
     from services.security.ssrf import assert_safe_url
     assert_safe_url(url)
+    is_playlist = any(x in url.lower() for x in (".m3u8", "m3u8", "mpegurl"))
     # ثلاث حزم بالترتيب: (1) نفس حزمة الفحص، (2) متصفح مكتبي + Referer،
-    # (3) حزمة متصفح كاملة لمقاومة Cloudflare. نجرّب التالية عند رفض 4xx/5xx.
+    # (3) حزمة متصفح كاملة لمقاومة Cloudflare.
     variants = [
         _make_headers(url, headers),
         alt_headers(url, headers),
@@ -91,28 +181,50 @@ def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
     ]
     last_exc: Optional[Exception] = None
     for i, req_headers in enumerate(variants):
-        rh = dict(req_headers)
-        if range_header:
-            rh["Range"] = range_header
-        req = urllib.request.Request(url, headers=rh, method="GET")
         try:
-            return urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
+            resp = _open_once(url, req_headers, range_header)
         except urllib.error.HTTPError as e:
             last_exc = e
-            # إعادة المحاولة مفيدة لروابط القوائم (نصية) أكثر من القطع.
-            if not (e.code and e.code >= 400):
-                raise
             logger.warning(
-                "relay upstream HTTP %s (attempt %s/3) for %s", e.code, i + 1, url[:140]
+                "relay upstream HTTP %s (attempt %s/3) for %s",
+                getattr(e, "code", "?"), i + 1, url[:140],
             )
             continue
-        except Exception as e:
-            # أخطاء شبكة/مهلة/SSL — جرّب الحزمة التالية أيضاً
+        except Exception as e:  # noqa: BLE001
             last_exc = e
-            logger.warning("relay upstream failed (attempt %s/3): %s | %s", i + 1, type(e).__name__, url[:140])
+            logger.warning(
+                "relay upstream failed (attempt %s/3): %s | %s",
+                i + 1, type(e).__name__, url[:140],
+            )
             continue
+        if not is_playlist:
+            return resp
+        # رابط قائمة: تحقق أن المحتوى فعلاً #EXTM3U — Cloudflare قد يرد صفحة
+        # HTML بحالة 200، وكان الريلاي يمرّرها لـ FFmpeg فيشتكي
+        # «Invalid data found when processing input».
+        try:
+            head = resp.read(16 * 1024)
+        except Exception as e:  # noqa: BLE001
+            last_exc = e
+            try:
+                resp.close()
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        if head.lstrip(b"\xef\xbb\xbf \r\n\t").lower().startswith(b"#extm3u"):
+            return _PeekedResponse(resp, head)
+        logger.warning(
+            "relay got non-playlist content (attempt %s/3) for %s", i + 1, url[:140]
+        )
+        last_exc = RuntimeError("non-playlist content (blocked?)")
+        try:
+            resp.close()
+        except Exception:  # noqa: BLE001
+            pass
+        continue
     if last_exc is not None:
         raise last_exc
+    raise RuntimeError("relay fetch failed")
 
 
 class _RelayHandler(BaseHTTPRequestHandler):

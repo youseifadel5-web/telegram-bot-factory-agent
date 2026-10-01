@@ -151,7 +151,7 @@ def test_relay_tries_third_variant_for_cloudflare(monkeypatch):
     class H(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
             hits["n"] += 1
-            ok = bool(self.headers.get("Sec-Fetch-Dest")) and bool(self.headers.get("Referer"))
+            ok = bool(self.headers.get("Origin")) and bool(self.headers.get("Referer"))
             if ok:
                 body = M3U8.encode()
                 self.send_response(200)
@@ -189,3 +189,64 @@ def test_relay_server_reuses_port(monkeypatch):
     hr._server = None
     srv2 = hr._ensure_server()
     assert srv2.server_address[1] == port1
+
+
+def test_relay_retries_when_cloudflare_returns_html(monkeypatch):
+    """Cloudflare يرد صفحة HTML بحالة 200 — يجب ألا تُمرَّر لـ FFmpeg،
+    بل تُجرَّب الحزمة التالية حتى تنجح."""
+    monkeypatch.setattr(ssrf_mod, "assert_safe_url", lambda u: None)
+    hits = {"n": 0}
+    HTML = b"<!DOCTYPE html><html><head><title>Just a moment...</title></head></html>"
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            hits["n"] += 1
+            ok = bool(self.headers.get("Origin")) and bool(self.headers.get("Referer"))
+            body = M3U8.encode() if ok else HTML
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/vnd.apple.mpegurl" if ok else "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            return
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        status, body = _relay_get(f"http://127.0.0.1:{srv.server_address[1]}/live/index.m3u8")
+        assert status == 200 and body.startswith(b"#EXTM3U")
+        assert hits["n"] == 3
+    finally:
+        srv.shutdown()
+
+
+def test_relay_errors_when_html_always(monkeypatch):
+    """لو كل الحزم رجعت HTML، الريلاي يرد خطأ (502) لا HTML لـ FFmpeg."""
+    monkeypatch.setattr(ssrf_mod, "assert_safe_url", lambda u: None)
+    HTML = b"<html><body>blocked</body></html>"
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(HTML)))
+            self.end_headers()
+            self.wfile.write(HTML)
+
+        def log_message(self, *a):
+            return
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        relay_url = hls_relay.get_relay_url(f"http://127.0.0.1:{srv.server_address[1]}/live/index.m3u8")
+        try:
+            urllib.request.urlopen(relay_url, timeout=15)
+            assert False, "كان يجب أن يفشل (502)"
+        except urllib.error.HTTPError as e:
+            assert e.code == 502
+    finally:
+        srv.shutdown()
