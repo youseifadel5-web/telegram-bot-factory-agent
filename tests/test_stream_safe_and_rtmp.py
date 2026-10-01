@@ -108,3 +108,36 @@ def test_start_stream_keeps_different_key_stream():
                            with_video=True, source_type="M3U8 / HLS")
     assert pid == 777
     assert stopped == []
+
+
+# ── كشف «جاري الاتصال» الطويل: قرار التوقف السريع ──────────────────────────
+
+def test_early_stuck_detected_before_full_stall_timeout():
+    import services.stream as s
+    # لا تدفق، لا تقدم، بعد 12 ثانية → عالق فوراً (بدل انتظار 45ث)
+    stalled, early = s._stall_decision(uptime=12, since_progress=12, data_flow=False, progress_count=0)
+    assert stalled is True and early is True
+    # قبل المدة → لا شيء
+    stalled, early = s._stall_decision(uptime=5, since_progress=5, data_flow=False, progress_count=0)
+    assert stalled is False and early is False
+
+
+def test_normal_stall_still_uses_full_timeout():
+    import services.stream as s
+    # فيه تدفق سابق ثم توقف 46 ثانية → عالق عادي (ليس early)
+    stalled, early = s._stall_decision(uptime=60, since_progress=46, data_flow=False, progress_count=7)
+    assert stalled is True and early is False
+    # توقف قصير (10ث) مع تدفق سابق → لا شيء
+    stalled, early = s._stall_decision(uptime=60, since_progress=10, data_flow=True, progress_count=7)
+    assert stalled is False
+
+
+def test_flowing_stream_never_flagged():
+    import services.stream as s
+    stalled, early = s._stall_decision(uptime=120, since_progress=1, data_flow=True, progress_count=50)
+    assert stalled is False and early is False
+
+
+def test_initial_timeout_less_than_stall_timeout():
+    import services.stream as s
+    assert s.INITIAL_DATA_TIMEOUT < s.STALL_TIMEOUT

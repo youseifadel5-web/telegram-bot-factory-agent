@@ -74,10 +74,25 @@ def _env_int(name: str, default: int) -> int:
 # (out_time not advancing), we consider audio "stalled" and force a restart.
 # All limits are configurable via .env (never hardcoded only).
 STALL_TIMEOUT = _env_int("STALL_TIMEOUT", 45)
+# كشف فشل أول اتصال بسرعة: لا تدفق بيانات خلال هذه المدة = المصدر/الأمر عالق.
+INITIAL_DATA_TIMEOUT = _env_int("INITIAL_DATA_TIMEOUT", 12)
 # Seconds of continuous, advancing progress before we call it healthy / ON AIR.
 HEALTHY_AFTER = _env_int("HEALTHY_AFTER", 8)
 # Consecutive failed connect attempts on one source before failing over.
 MAX_FAILS_BEFORE_FAILOVER = _env_int("MAX_FAILS_BEFORE_FAILOVER", 3)
+
+
+def _stall_decision(uptime: float, since_progress: float, data_flow: bool, progress_count: int):
+    """يقرّر ما إذا كان البث «عالقاً»: (stalled, early_stuck).
+
+    - كشف سريع: لا تدفق ولا أي تقدم خلال INITIAL_DATA_TIMEOUT = فشل أول اتصال.
+    - وإلا: مهلة التوقف العادية STALL_TIMEOUT بعد فترة تأكيد HEALTHY_AFTER.
+    """
+    if (not data_flow) and int(progress_count or 0) == 0 and uptime >= INITIAL_DATA_TIMEOUT:
+        return True, True
+    if uptime >= HEALTHY_AFTER and since_progress > STALL_TIMEOUT:
+        return True, False
+    return False, False
 
 _FFMPEG_OPTION_CACHE: Dict[tuple, bool] = {}
 
@@ -968,8 +983,13 @@ class StreamManager:
 
             uptime = time.time() - meta.get("last_start", time.time())
             last_progress = meta.get("last_progress_ts", meta.get("last_start", time.time()))
-            stalled = uptime >= HEALTHY_AFTER and (time.time() - last_progress) > STALL_TIMEOUT
             data_flow = bool(meta.get("data_flow"))
+            stalled, early_stuck = _stall_decision(
+                uptime,
+                time.time() - last_progress,
+                data_flow,
+                meta.get("output_progress_count", 0),
+            )
 
             if data_flow and not stalled:
                 if not meta.get("healthy"):
@@ -989,8 +1009,16 @@ class StreamManager:
             elif stalled:
                 meta["healthy"] = False
                 meta["state"] = "reconnecting"
-                meta["last_error"] = "توقف تدفق بيانات FFmpeg — إعادة الاتصال تلقائياً"
-                logger.warning("Stream %s output stalled for %.1fs", stream_id, time.time() - last_progress)
+                if early_stuck:
+                    meta["no_data_fail"] = meta.get("no_data_fail", 0) + 1
+                    meta["last_error"] = "لم يبدأ تدفق البيانات — إعادة المحاولة فوراً"
+                    logger.warning(
+                        "Stream %s: no data flow within %ss — restarting early",
+                        stream_id, INITIAL_DATA_TIMEOUT,
+                    )
+                else:
+                    meta["last_error"] = "توقف تدفق بيانات FFmpeg — إعادة الاتصال تلقائياً"
+                    logger.warning("Stream %s output stalled for %.1fs", stream_id, time.time() - last_progress)
                 self._kill_proc(process)
                 self.processes.pop(stream_id, None)
                 # A stall is a source failure like any other: count it and give
@@ -1156,6 +1184,14 @@ class StreamManager:
             logger.warning(
                 "Stream %s: switching to SAFE ffmpeg command after output error. cmd=%s",
                 stream_id, " ".join(str(x) for x in (meta.get("cmd_full") or [])),
+            )
+        elif meta.get("no_data_fail") and not meta.get("safe_mode"):
+            # لا تدفق بيانات خلال INITIAL_DATA_TIMEOUT → الأمر المتقدم عالق؛
+            # جرّب الأمر المجرّب (safe mode) فوراً بدل إعادة نفس الأمر الفاشل.
+            meta["safe_mode"] = True
+            logger.warning(
+                "Stream %s: no data flow on first attempt — switching to SAFE ffmpeg command",
+                stream_id,
             )
         elif restarts >= 2 and not meta.get("safe_mode") and not meta.get("data_flow"):
             # فشلين متتاليين بلا أي تدفق بيانات → جرّب الأمر المجرّب أيضاً.
