@@ -54,6 +54,7 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
     title = context.user_data.get("stream_title", "بث")
+    replaced_id = None
     
     source = context.user_data.get("stream_source")
     base = context.user_data.get("rtmp_base")
@@ -239,26 +240,31 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     source = sanitize_url_for_ffmpeg(source or "")
                 except Exception:
                     pass
-                # تليجرام يسمح باتصال ingest واحد فقط لكل مفتاح بث — بثّان بنفس
-                # المفتاح = الثاني يُرفض ويظهر «متوقفاً» بلا سبب واضح. نوضّحها
-                # للمستخدم بدل فشل صامت مربك.
+                # تليجرام يسمح باتصال ingest واحد فقط لكل مفتاح بث. عند تغيير
+                # البث (نفس المفتاح) نوقف البث القديم تلقائياً ونشغّل الجديد —
+                # سلوك «تبديل القناة» بدل رسالة تطلب مفتاحاً آخر.
                 try:
                     conflict = stream_manager.rtmp_in_use(rtmp, exclude_stream_id=stream_id)
                 except Exception:
                     conflict = None
                 if conflict:
-                    await db.update_stream_status(stream_id, "stopped")
-                    await db.update_stream_error(stream_id, f"نفس مفتاح البث مستخدم في بث #{conflict}")
-                    clear_workflow_state(context.user_data)
+                    try:
+                        await asyncio.to_thread(stream_manager.stop_stream, conflict)
+                    except Exception as e:
+                        logger.warning("stop conflicting stream %s: %s", conflict, e)
+                    try:
+                        await db.update_stream_status(conflict, "stopped")
+                        await db.add_stream_log(
+                            conflict, user_id, "replaced",
+                            f"أوقف تلقائياً واستُبدل بالبث #{stream_id} (نفس مفتاح البث)",
+                        )
+                    except Exception:
+                        pass
+                    replaced_id = conflict
                     await _safe_update_reply(
                         update,
-                        f"⚠️ تم حفظ البث #{stream_id} لكن لم يبدأ التشغيل.\n\n"
-                        f"🔑 نفس مفتاح البث مستخدم بالفعل في البث #{conflict} (شغّال الآن).\n"
-                        "تليجرام يسمح ببث واحد فقط لكل مفتاح — استخدم مفتاح مختلف "
-                        "(ابدأ «بث مباشر جديد» في تليجرام) أو أوقف البث الآخر أولاً.",
-                        reply_markup=main_reply_keyboard(is_admin(user_id, ADMIN_ID)),
+                        f"🔁 تم إيقاف البث #{conflict} (نفس مفتاح البث) — جاري تشغيل البث الجديد...",
                     )
-                    return ConversationHandler.END
                 pid = await asyncio.to_thread(
                     stream_manager.start_stream,
                     stream_id, source, rtmp,
@@ -398,9 +404,14 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fail = ("فشل" in str(status)) or ("🔴" in str(status)) or ("غير متوفر" in str(status))
         kb = main_reply_keyboard(is_admin(user_id, ADMIN_ID))
         tip = "إذا فشل البث راجع رابط المصدر ومفتاح RTMP، ثم أعد المحاولة." if fail else "يمكنك إدارة البث من «📡 البث الحالي»"
+        replaced_note = (
+            f"🔁 استبدل البث #{replaced_id} (نفس مفتاح البث) — تم إيقاف القديم تلقائياً.\n\n"
+            if replaced_id else ""
+        )
         await _safe_update_reply(
             update,
             f"{'⚠️' if fail else '✅'} تم إنشاء البث #{stream_id}\n\n"
+            f"{replaced_note}"
             f"📌 العنوان: {safe_title}\n"
             f"📤 RTMP: <code>{safe_rtmp}</code>\n"
             f"📡 الحالة: {safe_status}{offset_note}\n\n"

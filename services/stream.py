@@ -1249,6 +1249,24 @@ class StreamManager:
             if stream_id in self.processes:
                 self._stop_stream_locked(stream_id)
 
+            # تليجرام: مفتاح واحد = مساحة بث واحدة. أوقف أي بث آخر شغّال بنفس
+            # المفتاح تلقائياً قبل تشغيل هذا (سلوك «تبديل القناة») — يمنع خطأ
+            # Input/output error الذي كان يظهر لأن المفتاح مشغول.
+            _rtmp_norm = (rtmp_url or "").strip()
+            if _rtmp_norm:
+                for other_sid, other_meta in list(self._meta.items()):
+                    if other_sid == stream_id or other_sid not in self.processes:
+                        continue
+                    if (other_meta.get("rtmp") or "").strip() == _rtmp_norm:
+                        logger.warning(
+                            "Stream %s: stopping stream %s — same RTMP key (channel switch)",
+                            stream_id, other_sid,
+                        )
+                        try:
+                            self._stop_stream_locked(other_sid)
+                        except Exception as e:
+                            logger.debug("stop same-key stream failed: %s", e)
+
             src_list = sources or [source_url]
             self._meta[stream_id] = {
                 "source": source_url,

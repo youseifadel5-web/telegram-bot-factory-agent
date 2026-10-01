@@ -77,3 +77,34 @@ def test_rtmp_in_use_empty_url_is_none():
     mgr = _bare_manager()
     assert mgr.rtmp_in_use("") is None
     assert mgr.rtmp_in_use(None) is None
+
+
+def test_start_stream_stops_same_key_stream():
+    """تغيير القناة بنفس مفتاح البث = إيقاف البث القديم تلقائياً ثم تشغيل الجديد."""
+    mgr = _bare_manager()
+    stopped = []
+    mgr.processes = {1: object()}
+    mgr._meta[1] = {"rtmp": "rtmps://dc4-1.rtmp.t.me/s/KEY", "watchdog": True}
+    mgr._stop_stream_locked = lambda sid: stopped.append(sid) or True
+    mgr._spawn = lambda sid: 999
+    pid = mgr.start_stream(2, "https://cdn.example.com/live/b.m3u8",
+                           "rtmps://dc4-1.rtmp.t.me/s/KEY",
+                           with_video=True, source_type="M3U8 / HLS")
+    assert pid == 999
+    assert 1 in stopped                       # البث القديم أُوقف
+    assert mgr._meta[2]["rtmp"].endswith("/KEY")
+
+
+def test_start_stream_keeps_different_key_stream():
+    """مفتاح مختلف = بثّان معاً مسموحان (لا إيقاف)."""
+    mgr = _bare_manager()
+    stopped = []
+    mgr.processes = {1: object()}
+    mgr._meta[1] = {"rtmp": "rtmps://dc4-1.rtmp.t.me/s/KEY_A", "watchdog": True}
+    mgr._stop_stream_locked = lambda sid: stopped.append(sid) or True
+    mgr._spawn = lambda sid: 777
+    pid = mgr.start_stream(2, "https://cdn.example.com/live/b.m3u8",
+                           "rtmps://dc4-1.rtmp.t.me/s/KEY_B",
+                           with_video=True, source_type="M3U8 / HLS")
+    assert pid == 777
+    assert stopped == []

@@ -83,18 +83,21 @@ async def stream_start_callback(update: Update, context: ContextTypes.DEFAULT_TY
             use_video = not (probe.get("media_kind") == "audio" or looks_like_audio(src)) and (
                 bool(probe.get("has_video")) or looks_like_video(src)
             )
-        # تليجرام يسمح باتصال واحد لكل مفتاح بث — نوضّح التعارض بدل فشل صامت.
+        # تليجرام: مفتاح واحد = مساحة بث واحدة. عند تشغيل بث بنفس المفتاح
+        # نوقف البث الآخر الشغّال تلقائياً (سلوك تبديل القناة).
         try:
             conflict = stream_manager.rtmp_in_use(s["rtmp_url"], exclude_stream_id=stream_id)
         except Exception:
             conflict = None
         if conflict:
-            await query.answer(
-                f"⚠️ نفس مفتاح البث مستخدم في البث #{conflict} (شغّال). "
-                "تليجرام يسمح ببث واحد لكل مفتاح — استخدم مفتاحاً مختلفاً أو أوقف البث الآخر.",
-                show_alert=True,
-            )
-            return
+            try:
+                await asyncio.to_thread(stream_manager.stop_stream, conflict)
+                await db.update_stream_status(conflict, "stopped")
+                await db.add_stream_log(conflict, query.from_user.id, "replaced",
+                                        f"أوقف تلقائياً واستُبدل بالبث #{stream_id} (نفس مفتاح البث)")
+            except Exception:
+                pass
+            await query.answer(f"🔁 تم إيقاف البث #{conflict} (نفس مفتاح البث)", show_alert=True)
         pid = await asyncio.to_thread(
             stream_manager.start_stream,
             stream_id, src, s["rtmp_url"],
