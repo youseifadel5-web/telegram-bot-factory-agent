@@ -290,47 +290,252 @@ def _fuzzy_variants(query: str) -> list:
     return out[:6]
 
 
+def _norm_title(value) -> str:
+    """تطبيع بسيط للعناوين للمقارنة والدمج."""
+    import re as _re
+    import unicodedata
+    text = str(value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = _re.sub(r"[\W_]+", " ", text, flags=_re.UNICODE)
+    return text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").strip()
+
+
+def _kind_from_fasel(media: dict) -> str:
+    t = str(media.get("type") or "").lower()
+    if "anime" in t:
+        return "anime"
+    if "serie" in t or t == "series":
+        return "series"
+    return "movie"
+
+
+def normalize_fasel(media: dict) -> dict:
+    """يحوّل عنصر فاصل (FaselMedia) للشكل الموحّد بتاع السينما."""
+    if not isinstance(media, dict):
+        return {}
+    release = str(media.get("release") or "")
+    return {
+        "id": media.get("id"),
+        "kind": _kind_from_fasel(media),
+        "title": media.get("title") or "بدون عنوان",
+        "year": release[:4],
+        "rating": media.get("vote"),
+        "genre": ", ".join(media.get("genres") or []),
+        "story": media.get("overview") or "",
+        "poster": media.get("poster") or "",
+        "seasons": [],
+        "episodes_count": 0,
+        "links": [],
+        "source": "fasel",
+    }
+
+
+def normalize_firebase(item: dict, kind: str = "movie") -> dict:
+    """يحوّل عنصر كتالوج فايربيس للشكل الموحّد بتاع السينما."""
+    if not isinstance(item, dict):
+        return {}
+    return {
+        "id": item.get("id"),
+        "kind": kind,
+        "title": item.get("name") or "بدون عنوان",
+        "year": "",
+        "rating": "",
+        "genre": item.get("group") or "",
+        "story": "",
+        "poster": item.get("logoUrl") or "",
+        "seasons": [],
+        "episodes_count": 0,
+        "links": [],
+        "url": item.get("url") or "",
+        "source": "firebase",
+    }
+
+
+def _dedupe(items: List[dict]) -> List[dict]:
+    """إزالة التكرار بـ (kind + id) ولو مفيش id بـ (kind + عنوان مطبّع)."""
+    out, seen = [], set()
+    for item in items:
+        if not item:
+            continue
+        key = (item.get("kind"), item.get("id")) if item.get("id") else (item.get("kind"), _norm_title(item.get("title")))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def _cinema_from_golive(detail: dict, kind: str) -> dict:
+    """يحوّل تفاصيل GoLive المطبّعة لشكل السينما مع الروابط."""
+    result = normalize(detail, kind, details=False)
+    result["source"] = "golive"
+    result["story"] = detail.get("story") or ""
+    result["seasons"] = _as_list(detail.get("seasons"))
+    result["episodes_count"] = sum(len(s.get("episodes") or []) for s in result["seasons"])
+    result["links"] = normalize_links({"sources": detail.get("sources") or []})
+    return result
+
+
+def _cinema_from_fasel(detail: dict, kind: str) -> dict:
+    """يحوّل تفاصيل فاصل لشكل السينما مع الروابط من videos[]."""
+    result = normalize(detail, kind, details=False)
+    result["source"] = "fasel"
+    result["title"] = detail.get("title") or result.get("title") or "بدون عنوان"
+    result["story"] = detail.get("overview") or ""
+    result["poster"] = detail.get("poster") or ""
+    result["rating"] = detail.get("vote")
+    result["genre"] = ", ".join(detail.get("genres") or [])
+    result["seasons"] = _as_list(detail.get("seasons"))
+    result["episodes_count"] = sum(len(s.get("episodes") or []) for s in result["seasons"])
+    links = []
+    for video in detail.get("videos") or []:
+        if not isinstance(video, dict) or not video.get("link"):
+            continue
+        fmt = "m3u8" if video.get("hls") else ""
+        headers = {}
+        if video.get("referer"):
+            headers["Referer"] = video["referer"]
+        if video.get("userAgent"):
+            headers["User-Agent"] = video["userAgent"]
+        links.append({
+            "url": video["link"],
+            "quality": "HD" if video.get("hd") else "جودة متاحة",
+            "label": video.get("server") or "سيرفر",
+            "format": fmt,
+            "headers": headers,
+            "type": "download" if video.get("downloadOnly") else "watch",
+            "size": "",
+        })
+    result["links"] = links
+    return result
+
+
+async def _golive_search(q: str, limit: int) -> List[dict]:
+    from services.app_sources import golive, enabled
+    if not enabled("golive"):
+        return []
+    items = await golive.search(q, page=1, limit=max(limit, 35))
+    return [normalize(x, x.get("kind") or "movie") for x in items if isinstance(x, dict)]
+
+
+async def _fasel_search(q: str, limit: int) -> List[dict]:
+    from services.app_sources import fasel, enabled
+    if not enabled("fasel"):
+        return []
+    items = await fasel.search(q)
+    return [normalize_fasel(x) for x in items if isinstance(x, dict)]
+
+
+async def _firebase_search(q: str, limit: int) -> List[dict]:
+    from services.app_sources import firebase_catalog, enabled
+    if not enabled("firebase"):
+        return []
+    try:
+        catalog = await firebase_catalog.load_catalog(scrape_movies=False)
+    except Exception as exc:
+        logger.debug("firebase search: %s", exc)
+        return []
+    nq = _norm_title(q)
+    out: List[dict] = []
+    for kind, key in (("movie", "films"), ("series", "series"), ("anime", "cartoons")):
+        for item in catalog.get(key) or []:
+            if nq and nq in _norm_title(item.get("name")):
+                out.append(normalize_firebase(item, kind))
+            if len(out) >= limit:
+                return out
+    return out
+
+
 async def search(query: str, limit: int = 12) -> List[dict]:
-    """Search movies/series with fuzzy variants via the Hekaya source."""
+    """بحث موحّد: golive + fasel + firebase مدموجين ومزال التكرار."""
     q = (query or "").strip()
     if len(q) < 2:
         return []
-    variants = _fuzzy_variants(q)
-
-    results = []
-    seen_ids = set()
-    for v in variants:
+    results: List[dict] = []
+    # بحث حكاية بمتغيّرات تقريبية زي الأول
+    for variant in _fuzzy_variants(q):
         try:
-            from services import hekaya
-            hk = await hekaya.search(v, page=1, limit=limit)
-            for x in hk or []:
-                n = normalize(x, x.get("kind") or "movie")
-                n["source"] = "hekaya"
-                key = ("hekaya", n.get("id"), n.get("kind"))
-                if key not in seen_ids:
-                    seen_ids.add(key); results.append(n)
-        except Exception as e:
-            logger.debug("hekaya search: %s", e)
+            results.extend(await _golive_search(variant, limit))
+        except Exception as exc:
+            logger.debug("golive search: %s", exc)
         if len(results) >= limit * 3:
             break
-    return results[: max(1, limit * 3)]
+    # فاصل وفايربيس بالاستعلام الأصلي
+    for provider in (_fasel_search, _firebase_search):
+        try:
+            results.extend(await provider(q, limit))
+        except Exception as exc:
+            logger.debug("cinema search provider: %s", exc)
+    return _dedupe(results)[: max(1, limit * 3)]
 
 
 async def details(kind: str, item_id: int) -> Optional[dict]:
-    try:
-        from services import hekaya
-        data = await hekaya.get_details(int(item_id), kind)
-        return normalize(data, kind, details=True) if data else None
-    except Exception as exc:
-        logger.warning("cinema details failed %s/%s: %s", kind, item_id, exc)
+    """تفاصيل عمل: يجرّب golive ثم fasel — ويرجّع أول نتيجة فيها محتوى."""
+    if item_id is None:
         return None
+    try:
+        from services.app_sources import golive, fasel, enabled
+    except Exception:
+        return None
+    # 1) golive
+    if enabled("golive"):
+        try:
+            detail = await (golive.series_detail(item_id) if kind in ("series", "anime") else golive.movie_detail(item_id))
+            if detail and (detail.get("sources") or detail.get("seasons")):
+                return _cinema_from_golive(detail, kind)
+        except Exception as exc:
+            logger.warning("cinema golive detail failed %s/%s: %s", kind, item_id, exc)
+    # 2) fasel
+    if enabled("fasel"):
+        try:
+            if kind == "series":
+                detail = await fasel.series_detail(item_id)
+            elif kind == "anime":
+                detail = await fasel.anime_detail(item_id)
+            else:
+                detail = await fasel.movie_detail(item_id)
+            if detail and (detail.get("videos") or detail.get("seasons")):
+                return _cinema_from_fasel(detail, kind)
+        except Exception as exc:
+            logger.warning("cinema fasel detail failed %s/%s: %s", kind, item_id, exc)
+    return None
+
+
+# كاش مؤقّت لحلقات آخر مسلسل اتفتح (عشان episode_details تلاقي الحلقة بالـ id)
+_episode_cache: Dict[Any, dict] = {}
 
 
 async def episodes(kind: str, parent_id: int, season_id: Optional[int] = None, page: int = 1) -> List[dict]:
-    """Hekaya exposes no episode listing; return an empty list gracefully."""
-    return []
+    """حلقات موسم من golive (المسلسل بيجي بالحلقات جوه seasons)."""
+    if kind not in ("series", "anime"):
+        return []
+    try:
+        from services.app_sources import golive, enabled
+        if not enabled("golive"):
+            return []
+        detail = await golive.series_detail(parent_id)
+    except Exception as exc:
+        logger.warning("cinema episodes failed %s/%s: %s", kind, parent_id, exc)
+        return []
+    seasons = _as_list((detail or {}).get("seasons"))
+    season = None
+    for candidate in seasons:
+        if season_id is not None and candidate.get("id") == season_id:
+            season = candidate
+            break
+    if season is None and seasons:
+        season = seasons[0]
+    eps = _as_list((season or {}).get("episodes"))
+    for ep in eps:
+        if ep.get("id") is not None:
+            _episode_cache[ep.get("id")] = ep
+    return eps
 
 
 async def episode_details(kind: str, episode_id: int) -> Optional[dict]:
-    """Hekaya exposes no episode details; return None gracefully."""
-    return None
+    """روابط حلقة من الكاش (اتملأ في episodes())."""
+    ep = _episode_cache.get(episode_id)
+    if not ep:
+        return None
+    return {"id": episode_id, "links": normalize_links(ep)}
