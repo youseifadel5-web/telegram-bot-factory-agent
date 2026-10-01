@@ -204,7 +204,14 @@ async def _dispatch_menu(update: Update, context, action: str):
             self.from_user = update.effective_user
             self.message = update.message
             self.data = action
-        async def answer(self, *a, **k):
+        async def answer(self, text=None, show_alert=False, **k):
+            # كانت دالة بلا أثر: أي رفض (مثل «للأدمن فقط») يختفي بلا رسالة
+            # فيبدو الزر كأنه لا يعمل. الآن تُرسَل الرسالة للمستخدم.
+            if text:
+                try:
+                    await self.message.reply_text(str(text))
+                except Exception:
+                    pass
             return None
         async def edit_message_text(self, text, **k):
             return await self.message.reply_text(
@@ -260,11 +267,10 @@ async def reply_menu_router(update: Update, context):
     action = match_reply_action(text)
     if not action or action == "stream_new":
         return
-    # لا تفتح قائمة إذا كان المستخدم في منتصف إدخال (بحث/رابط/إعداد)
-    ud = context.user_data or {}
-    if any(k.startswith("await_") and ud.get(k) for k in ud):
-        return
-    # leave any stuck conversation
+    # زر قائمة = تنقّل صريح من المستخدم: يُلغى أي إدخال معلّق ويُنفَّذ الزر.
+    # الحارس القديم كان يمنع *كل* الأزرار عندما يبقى أي await_* معلّقاً بلا
+    # إدخال (مثل شاشة بحث تُفتح ثم يضغط المستخدم زراً) — فتبدو الأزرار «واقفة».
+    # الإدخال الحر غير المطابق لأي زر لا يصل إلى هنا أصلاً (action=None).
     clear_workflow_state(context.user_data)
     await _dispatch_menu(update, context, action)
 
