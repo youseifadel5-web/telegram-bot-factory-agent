@@ -180,7 +180,43 @@ def _fetch_master_variants(url: str, headers: Optional[Dict[str, str]] = None, t
         return {}
 
 
+_PROBE_CACHE: Dict[str, Any] = {}
+_PROBE_CACHE_TTL = 90.0  # ثانية
+
+
 def probe_source(
+    url: str,
+    timeout: int = 35,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Cached wrapper حول الفحص الفعلي.
+
+    الفحص يُستدعى مرتين عادة (عند إرسال المصدر ثم قبل التشغيل). الكاش (90 ثانية،
+    للفحوص الناجحة فقط) يجعل الثاني فورياً بدل إعادة sniff + جلب master playlist
+    من الشبكة — وهذا سبب بطء خطوة «جاري فحص المصدر قبل التشغيل».
+    """
+    import time as _t
+    try:
+        key = f"{url}|{sorted((headers or {}).items())}"
+    except Exception:
+        key = str(url)
+    hit = _PROBE_CACHE.get(key)
+    now = _t.time()
+    if hit and (now - hit[0]) < _PROBE_CACHE_TTL:
+        return dict(hit[1])
+    res = _probe_source_impl(url, timeout, headers)
+    try:
+        if isinstance(res, dict) and res.get("ok"):
+            _PROBE_CACHE[key] = (now, dict(res))
+            if len(_PROBE_CACHE) > 128:
+                for k in list(_PROBE_CACHE)[:64]:
+                    _PROBE_CACHE.pop(k, None)
+    except Exception:
+        pass
+    return res
+
+
+def _probe_source_impl(
     url: str,
     timeout: int = 35,
     headers: Optional[Dict[str, str]] = None,
@@ -327,6 +363,9 @@ def probe_source(
         result["format"] = "hls"
         result["media_kind"] = detect_media_kind(url, result)
         result["note"] = "فحص سريع (HLS مؤكد عبر HTTP)"
+        # احفظ الرابط المنظف حتى يتعرّف المسار اللاحق على أن الفحص تم مسبقاً
+        # ولا يعيد الفحص من الشبكة (سبب بطء «جاري فحص المصدر قبل التشغيل»).
+        result["cleaned_url"] = result.get("cleaned_url") or url
         return result
 
     if not url:

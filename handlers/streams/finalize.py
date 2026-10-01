@@ -81,7 +81,7 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── Source probe before starting ──
         ffmpeg_ready = await asyncio.to_thread(stream_manager.has_ffmpeg)
         if rtmp and source and ffmpeg_ready:
-            await _safe_update_reply(update, "🔍 جاري فحص المصدر قبل التشغيل...")
+            await _safe_update_reply(update, "⚙️ جاري تجهيز المصدر وتشغيل البث...")
             # Google Drive: resolve + optional local download if probe fails
             if is_drive_url(source):
                 fid = extract_file_id(source) or drive_fid
@@ -134,9 +134,20 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # once in a worker thread and pass the same headers to playback.
             probe = context.user_data.get("probe_result") or {}
             probe_url = probe.get("cleaned_url") if isinstance(probe, dict) else None
-            if not probe or not probe_url or probe_url != source:
+            # أعد استخدام الفحص السابق إن كان لنفس المصدر (مع تجاهل الفروق
+            # الطفيفة في التنظيف) — الفحص مكلف شبكياً ويُستدعى مرتين عادة.
+            same_probe = bool(probe) and bool(
+                probe_url in (source, None)
+                or str(probe_url or "").rstrip("/") == str(source or "").rstrip("/")
+            )
+            if not same_probe:
                 headers_for_probe = context.user_data.get("pending_stream_headers") or {}
                 probe = await asyncio.to_thread(probe_source, source, headers=headers_for_probe)
+            # ملاحظة تقدّم للمستخدم حتى لا تبدو الخطوة معلّقة
+            try:
+                await _safe_update_reply(update, "🚀 تم فحص المصدر — جاري بدء البث...")
+            except Exception:
+                pass
             # Keep the actual media type discovered by ffprobe. URL-based
             # detection alone misses many IPTV/Xtream links that have no
             # ".m3u8" or ".mp4" in the URL.
@@ -283,11 +294,29 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
                 import asyncio as _asyncio
-                await _asyncio.sleep(8.0)
+
+                async def _await_start(max_seconds: float):
+                    """انتظر حتى يتأكد التدفق أو يتوقف — بلا نوم ثابت يضيّع الوقت.
+
+                    """
+                    loop = _asyncio.get_running_loop()
+                    end = loop.time() + max_seconds
+                    while loop.time() < end:
+                        try:
+                            if stream_manager.is_healthy(stream_id):
+                                return True
+                            if not stream_manager.is_running(stream_id):
+                                return False
+                        except Exception:
+                            pass
+                        await _asyncio.sleep(0.5)
+                    return None
+
+                started_ok = await _await_start(8.0)
                 # If the first FFmpeg process really exited, retry the SAME
                 # video pipeline once.  Do not switch a working video source
                 # to black-screen/audio-only: that can hide the real HLS error.
-                if pid and not stream_manager.is_running(stream_id) and use_video:
+                if pid and started_ok is False and use_video:
                     meta1 = stream_manager.get_meta(stream_id)
                     err1 = (meta1 or {}).get("last_error") or "سبب غير مسجل"
                     # Preserve the first failure because start_stream() replaces
@@ -309,14 +338,14 @@ async def finalize_stream(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         source_type=probe.get("source_type") or "",
                         probe_result=probe,
                     )
-                    await _asyncio.sleep(5.0)
+                    await _await_start(5.0)
                 # ── لا نعلن «بث» إلا بعد تشغيل فعلي مؤكد ──────────────────
                 # ننتظر تدفق بيانات حقيقي (أو فشلاً واضحاً) قبل أي رسالة،
                 # بدل «جاري الاتصال» التي تظهر قبل أن يعمل شيء فعلاً.
                 if pid:
                     await db.update_stream_status(stream_id, "running", pid)
                     verdict = "connecting"
-                    deadline = _asyncio.get_running_loop().time() + 40
+                    deadline = _asyncio.get_running_loop().time() + 30
                     while _asyncio.get_running_loop().time() < deadline:
                         try:
                             if stream_manager.is_healthy(stream_id):
