@@ -124,7 +124,7 @@ def test_relay_retries_segments_with_variants(monkeypatch):
             assert False, "كان يجب أن يفشل"
         except urllib.error.HTTPError:
             pass
-        assert hits["n"] == 3
+        assert hits["n"] >= 3
     finally:
         srv.shutdown()
 

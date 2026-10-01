@@ -24,7 +24,7 @@ from urllib.parse import urljoin, urlparse
 from services.http_headers import SNIFF_HEADERS, alt_headers, cf_headers
 
 logger = logging.getLogger(__name__)
-FETCH_TIMEOUT = 25
+FETCH_TIMEOUT = 12
 
 # curl_cffi يقلّد بصمة TLS/HTTP لمتصفح Chrome حقيقي (JA3/JA4) — وهو الفرق
 # الجوهري الذي يمنع Cloudflare من تمييز الطلب كبوت. اختياري: لو غير متاح
@@ -147,12 +147,12 @@ def _make_headers(orig_url: str, extra: Dict[str, str]) -> Dict[str, str]:
     return h
 
 
-def _open_once(url: str, headers: Dict[str, str], range_header: Optional[str]):
-    """فتح واحد لطلب واحد — curl_cffi أولاً (مقاومة Cloudflare) ثم urllib."""
+def _open_once(url: str, headers: Dict[str, str], range_header: Optional[str], use_cffi: bool = False):
+    """فتح واحد لطلب واحد — urllib افتراضياً (مُجرّب مع الفحص)، وcurl_cffi كملاذ أخير."""
     rh = dict(headers)
     if range_header:
         rh["Range"] = range_header
-    if _HAS_CFFI:
+    if use_cffi and _HAS_CFFI:
         resp = _cffi_requests.get(
             url, headers=rh, impersonate="chrome", timeout=FETCH_TIMEOUT,
             stream=True, allow_redirects=True,
@@ -187,22 +187,27 @@ def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
         alt_headers(url, headers),
         cf_headers(url, headers),
     ]
+    # urllib أولاً لكل الحزم (أثبت أنه يعمل مع الفحص)، ثم curl_cffi كملاذ أخير
+    # بحزمة المتصفح الكاملة — لأنه يقلّد بصمة Chrome لكنه قد يتعلّق مع بعض المضيفين.
+    attempts = [(v, False) for v in variants]
+    if _HAS_CFFI:
+        attempts.append((cf_headers(url, headers), True))
     last_exc: Optional[Exception] = None
-    for i, req_headers in enumerate(variants):
+    for i, (req_headers, use_cffi) in enumerate(attempts):
         try:
-            resp = _open_once(url, req_headers, range_header)
+            resp = _open_once(url, req_headers, range_header, use_cffi=use_cffi)
         except urllib.error.HTTPError as e:
             last_exc = e
             logger.warning(
-                "relay upstream HTTP %s (attempt %s/3) for %s",
-                getattr(e, "code", "?"), i + 1, url[:140],
+                "relay upstream HTTP %s (attempt %s/%s, cffi=%s) for %s",
+                getattr(e, "code", "?"), i + 1, len(attempts), use_cffi, url[:140],
             )
             continue
         except Exception as e:  # noqa: BLE001
             last_exc = e
             logger.warning(
-                "relay upstream failed (attempt %s/3): %s | %s",
-                i + 1, type(e).__name__, url[:140],
+                "relay upstream failed (attempt %s/%s, cffi=%s): %s | %s",
+                i + 1, len(attempts), use_cffi, type(e).__name__, url[:140],
             )
             continue
         # صنّف المحتوى بالفعلي لا بالامتداد: كثير من مصادر IPTV تتنكّر بامتداد
@@ -218,10 +223,12 @@ def _fetch(url: str, headers: Dict[str, str], range_header: Optional[str]):
                 pass
             continue
         if head.lstrip(b"\xef\xbb\xbf \r\n\t").lower().startswith(b"#extm3u"):
+            logger.info("relay served playlist (attempt %s/%s, cffi=%s) %s", i + 1, len(attempts), use_cffi, url[:120])
             return _PeekedResponse(resp, head)
         if _looks_like_html(head):
             logger.warning(
-                "relay got HTML block page (attempt %s/3) for %s", i + 1, url[:140]
+                "relay got HTML block page (attempt %s/%s, cffi=%s) for %s",
+                i + 1, len(attempts), use_cffi, url[:140],
             )
             last_exc = RuntimeError("blocked (html challenge)")
             try:
